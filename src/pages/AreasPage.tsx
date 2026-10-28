@@ -15,7 +15,7 @@ export default function AreasPage() {
   const conn = useConnection();
   const [tv, setTv] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
-  const [hideDemo, setHideDemo] = useState(false);
+  const [hideDemo] = useState(false);
 
   useEffect(() => {
     document.body.classList.toggle('tv-mode', tv);
@@ -59,7 +59,6 @@ export default function AreasPage() {
           <span className={k.handover_overdue ? 'delay' : ''}><b>{k.handover_overdue}</b> overdue</span><span><b>{k.unassigned}</b> unassigned</span>
         </div>}
         <span className="spacer" />
-        <label className="check"><input type="checkbox" checked={hideDemo} onChange={(e) => setHideDemo(e.target.checked)} /> Hide demo</label>
         {tv && <span className={`conn conn-${conn.status}`}>{conn.status}</span>}
         <Button size="sm" onClick={() => setTv(!tv)}>{tv ? 'Exit TV mode' : 'TV mode'}</Button>
       </section>

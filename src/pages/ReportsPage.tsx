@@ -29,7 +29,7 @@ export default function ReportsPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [hideDemo, setHideDemo] = useState(true);
+  const hideDemo = false;
 
   async function runReport() {
     setLoading(true); setErr(null);
@@ -71,7 +71,6 @@ export default function ReportsPage() {
         <Field label="From (business date)"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
         <Button variant="primary" busy={loading} onClick={() => void runReport()}>Run report</Button>
-        <label className="check"><input type="checkbox" checked={hideDemo} onChange={(e) => setHideDemo(e.target.checked)} /> Exclude demo data</label>
         <span className="spacer" />
         <Button size="sm" disabled={!shown.length} onClick={() => downloadCsv(shown, autoColumns(shown), base)}>CSV</Button>
         <Button size="sm" disabled={!shown.length} onClick={() => void downloadXlsx(shown, autoColumns(shown), base)}>Excel</Button>

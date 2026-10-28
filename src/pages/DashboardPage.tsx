@@ -41,7 +41,7 @@ export default function DashboardPage() {
   const ref = useRefData();
   const now = useNow(1000);
   const [shift, setShift] = useState('');
-  const [hideDemo, setHideDemo] = useState(false);
+  const [hideDemo] = useState(false);
   const [search, setSearch] = useState('');
   const [fStatus, setFStatus] = useState('');
   const [fArea, setFArea] = useState('');
@@ -121,7 +121,7 @@ export default function DashboardPage() {
     { header: 'Handover Status', value: (r) => r.handover_status }, { header: 'Receiving MP', value: (r) => r.receiver_name },
     { header: 'Supervisor', value: (r) => r.supervisor_name }, { header: 'Expected By', value: (r) => fmtDateTime(r.expected_by) },
     { header: 'Delay Minutes', value: (r) => Math.round(delaySeconds(r.expected_by) / 60) },
-    { header: 'Last Updated', value: (r) => fmtDateTime(r.updated_at) }, { header: 'Demo', value: (r) => (r.is_demo ? 'yes' : '') },
+    { header: 'Last Updated', value: (r) => fmtDateTime(r.updated_at) },
   ];
 
   const k = live.data?.kpis;
@@ -149,7 +149,6 @@ export default function DashboardPage() {
         <select value={fHo} onChange={(e) => setFHo(e.target.value)} aria-label="Handover status"><option value="">Any handover</option>{Object.keys(HANDOVER_META).map((s) => <option key={s}>{s}</option>)}</select>
         <input placeholder="Route / ref" value={fRoute} onChange={(e) => setFRoute(e.target.value)} className="narrow" />
         <label className="check"><input type="checkbox" checked={showOff} onChange={(e) => setShowOff(e.target.checked)} /> Show not checked-in</label>
-        <label className="check"><input type="checkbox" checked={hideDemo} onChange={(e) => setHideDemo(e.target.checked)} /> Hide demo</label>
         <Button size="sm" variant="ghost" onClick={clearFilters}>Clear</Button>
         <span className="spacer" />
         <Button size="sm" onClick={() => downloadCsv(rows, exportCols, `mp-live-${stamp}`)}>CSV</Button>

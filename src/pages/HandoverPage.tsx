@@ -17,7 +17,7 @@ export default function HandoverPage() {
   const isSup = can('admin', 'ops_manager', 'supervisor');
   const now = useNow(1000);
   const [act, setAct] = useState<{ kind: HoActionKind; h: HandoverLive } | null>(null);
-  const [hideDemo, setHideDemo] = useState(false);
+  const [hideDemo] = useState(false);
   const [q, setQ] = useState('');
 
   const data = useLiveQuery<HandoverLive[]>(() => get<HandoverLive[]>('handovers', { since: startOfSiteDay() }),
@@ -93,7 +93,6 @@ export default function HandoverPage() {
       </section>
       <section className="toolbar">
         <input type="search" className="search" placeholder="Search MP, #, route…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <label className="check"><input type="checkbox" checked={hideDemo} onChange={(e) => setHideDemo(e.target.checked)} /> Hide demo</label>
         <span className="spacer" />
         <Button size="sm" onClick={() => downloadCsv(rows, exportCols, `handovers-${siteToday()}`)}>CSV</Button>
       </section>

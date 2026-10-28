@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { del, get, post, put, rpc } from '../lib/api';
+import { del, get, post, put } from '../lib/api';
 import { useLiveQuery } from '../hooks/useLive';
 import { useRefData } from '../hooks/useRefData';
 import { useAuth } from '../hooks/useAuth';
@@ -9,7 +9,7 @@ import { fmtDateTime } from '../lib/format';
 import { EnrollModal } from './FaceEnrollPage';
 import { SAMPLE_HEADERS, SAMPLE_ROWS, prepareRows, type ImportIssue, type ImportRow } from '../lib/employeeImport';
 
-const TABS = ['Areas & blocks', 'Shifts', 'Employees', 'Users & roles', 'Devices', 'Settings', 'Demo data'] as const;
+const TABS = ['Areas & blocks', 'Shifts', 'Employees', 'Users & roles', 'Devices', 'Settings'] as const;
 const ROLES: AppRole[] = ['admin', 'ops_manager', 'supervisor', 'gate_operator'];   // MP logins are off
 
 export default function AdminPage() {
@@ -23,7 +23,6 @@ export default function AdminPage() {
       {tab === 'Users & roles' && <UsersAdmin />}
       {tab === 'Devices' && <DevicesAdmin />}
       {tab === 'Settings' && <SettingsAdmin />}
-      {tab === 'Demo data' && <DemoAdmin />}
     </div>
   );
 }
@@ -140,10 +139,22 @@ function EmployeesAdmin() {
     }
   };
 
+  const removeEmp = async (e: Emp) => {
+    if (!confirm(`${e.full_name} (${e.employee_code}) ko delete karna hai?\n\nIske saare logs bhi delete ho jayenge (attendance, gate IN/OUT, deployment, handover, face). Wapas nahi aayega.`)) return;
+    if (await run(() => del(`admin/employees/${e.id}?with_history=true`), 'Employee deleted')) { list.refresh(); faces.refresh(); }
+  };
+  const resetAll = async () => {
+    const t = prompt('SAARE employees aur unke saare logs (attendance, gate IN/OUT, deployment, handover, alerts, face photos) delete honge. Areas, shifts, devices, logins aur settings rahenge.\n\nPakka karne ke liye DELETE ALL likhiye:');
+    if (t === null) return;
+    if (t.trim() !== 'DELETE ALL') { alert('Kuch delete nahi hua — DELETE ALL likhna zaroori hai'); return; }
+    if (await run(() => post('admin/reset-employees', { confirm: 'DELETE ALL' }), 'Saare employees aur logs delete ho gaye')) { list.refresh(); faces.refresh(); }
+  };
+
   return (
     <section className="panel">
       <div className="row between"><h3>Employees (MP master)</h3>
         <div className="row gap"><input type="search" className="search" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Button size="sm" variant="danger" busy={busy} onClick={() => void resetAll()}>Delete ALL employees + logs</Button>
           <Button size="sm" onClick={() => void downloadSample()}>Download sample</Button>
           <Button size="sm" onClick={() => setBulk(true)}>Bulk import (file)</Button>
           <Button size="sm" variant="primary" onClick={() => setEdit({ employee_code: '', full_name: '', designation: null, default_shift_id: null, default_supervisor_user_id: null, badge_code: null, device_person_id: null, is_active: true })}>Add employee</Button></div></div>
@@ -156,7 +167,8 @@ function EmployeesAdmin() {
           <td>{enrolled.has(e.id!) ? <span className="pill tone-green">Enrolled</span> : <span className="pill tone-amber">Nahi</span>}</td>
           <td>{e.is_active ? 'Active' : 'Inactive'}</td>
           <td className="row gap"><Button size="sm" variant="ghost" onClick={() => setEdit(e)}>Edit</Button>
-            {!!e.is_active && <Button size="sm" variant="ghost" onClick={() => setFaceFor({ id: e.id!, employee_code: e.employee_code, full_name: e.full_name })}>{enrolled.has(e.id!) ? 'Face again' : 'Face capture'}</Button>}</td></tr>)}</tbody></table>
+            {!!e.is_active && <Button size="sm" variant="ghost" onClick={() => setFaceFor({ id: e.id!, employee_code: e.employee_code, full_name: e.full_name })}>{enrolled.has(e.id!) ? 'Face again' : 'Face capture'}</Button>}
+            <Button size="sm" variant="ghost" busy={busy} onClick={() => void removeEmp(e)}>Delete</Button></td></tr>)}</tbody></table>
       {rows.length > 500 && <p className="muted small">Showing first 500 — refine the search.</p>}
       {edit && <Modal title={edit.id ? `Edit ${edit.full_name}` : 'Add employee'} onClose={() => setEdit(null)} footer={<><Button variant="ghost" onClick={() => setEdit(null)}>Cancel</Button><Button variant="primary" busy={busy} onClick={() => void submit()}>Save</Button></>}>
         <div className="grid2">
@@ -409,16 +421,3 @@ function SettingsAdmin() {
   );
 }
 
-function DemoAdmin() {
-  const { busy, run } = useAction();
-  return (
-    <section className="panel">
-      <h3>Demo data</h3>
-      <p>Demo MPs are flagged <code>is_demo</code>, carry a DEMO badge, and can be hidden on every screen. Use them for training only, and purge before go-live.</p>
-      <div className="row gap">
-        <Button busy={busy} onClick={() => void run(() => post('admin/seed-demo'), 'Demo MPs added')}>Add 24 demo MPs</Button>
-        <Button variant="danger" busy={busy} onClick={() => { if (confirm('Delete ALL demo employees and their events? This cannot be undone.')) void run(() => rpc('purge_demo_data'), 'Demo data purged'); }}>Purge demo data</Button>
-      </div>
-    </section>
-  );
-}
