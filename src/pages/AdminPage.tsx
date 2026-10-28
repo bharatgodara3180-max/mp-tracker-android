@@ -7,6 +7,7 @@ import type { Area, Device, Shift, AppRole } from '../lib/types';
 import { Button, ErrorBox, Field, Loading, Modal, useAction, useToast, Pill } from '../components/ui';
 import { fmtDateTime } from '../lib/format';
 import { EnrollModal } from './FaceEnrollPage';
+import { WorkforcePhotosModal } from '../components/WorkforcePhotos';
 import { SAMPLE_HEADERS, SAMPLE_ROWS, prepareRows, type ImportIssue, type ImportRow } from '../lib/employeeImport';
 
 const TABS = ['Areas & blocks', 'Shifts', 'Employees', 'Users & roles', 'Devices', 'Settings'] as const;
@@ -123,6 +124,7 @@ function EmployeesAdmin() {
   const [bulk, setBulk] = useState(false);
   const [faceFor, setFaceFor] = useState<{ id: string; employee_code: string; full_name: string } | null>(null);
   const [faceAfterSave, setFaceAfterSave] = useState(true);
+  const [wf, setWf] = useState(false);
   const list = useLiveQuery<Emp[]>(() => get<Emp[]>('admin/employees'), [], []);
   const faces = useLiveQuery<{ id: string; samples: number }[]>(() => get('face/enrollments'), [], []);
   const enrolled = new Set((faces.data ?? []).filter((f) => f.samples > 0).map((f) => f.id));
@@ -155,6 +157,7 @@ function EmployeesAdmin() {
       <div className="row between"><h3>Employees (MP master)</h3>
         <div className="row gap"><input type="search" className="search" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
           <Button size="sm" variant="danger" busy={busy} onClick={() => void resetAll()}>Delete ALL employees + logs</Button>
+          <Button size="sm" onClick={() => setWf(true)}>Workforce photos</Button>
           <Button size="sm" onClick={() => void downloadSample()}>Download sample</Button>
           <Button size="sm" onClick={() => setBulk(true)}>Bulk import (file)</Button>
           <Button size="sm" variant="primary" onClick={() => setEdit({ employee_code: '', full_name: '', designation: null, default_shift_id: null, default_supervisor_user_id: null, badge_code: null, device_person_id: null, is_active: true })}>Add employee</Button></div></div>
@@ -184,6 +187,7 @@ function EmployeesAdmin() {
           ? <Button size="sm" onClick={() => { setFaceFor({ id: edit.id!, employee_code: edit.employee_code, full_name: edit.full_name }); setEdit(null); }}>{enrolled.has(edit.id) ? 'Face photo dobara capture karein' : 'Face photo capture karein'}</Button>
           : <label className="check"><input type="checkbox" checked={faceAfterSave} onChange={(e) => setFaceAfterSave(e.target.checked)} /> Save ke baad face photo capture karein</label>}
       </Modal>}
+      {wf && <WorkforcePhotosModal employees={list.data ?? []} enrolled={enrolled} onClose={() => setWf(false)} onDone={() => faces.refresh()} />}
       {faceFor && <EnrollModal row={faceFor} onClose={() => setFaceFor(null)} onSaved={() => { setFaceFor(null); faces.refresh(); }} />}
       {bulk && <BulkImportModal onClose={() => setBulk(false)} onDone={() => { setBulk(false); list.refresh(); }} />}
     </section>
