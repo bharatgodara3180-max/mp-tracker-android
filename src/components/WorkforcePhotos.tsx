@@ -26,7 +26,8 @@ function consoleScript(ids: string[]): string {
   const toData = (b) => new Promise((res, rej) => { const f = new FileReader(); f.onload = () => res(f.result); f.onerror = rej; f.readAsDataURL(b); });
   const w = window.open('about:blank', 'mp_wf_photos');
   if (!w) { alert('Popup block hai - address bar mein popup allow kariye aur script dobara chalaiye'); return; }
-  const photos = {}, failed = {};
+  const photos = {}, urls = {}, failed = {};
+  let direct = true;
   for (let i = 0; i < IDS.length; i++) {
     const id = IDS[i];
     console.log('[' + (i + 1) + '/' + IDS.length + '] ' + id);
@@ -47,20 +48,20 @@ function consoleScript(ids: string[]): string {
       if (!img) { failed[id] = 'Profile Photo nahi mili'; continue; }
       const src = img.currentSrc || img.src;
       let data = null;
-      try { const r = await fetch(src, { credentials: 'include' }); if (r.ok) data = await toData(await r.blob()); } catch (e) { /* try canvas */ }
-      if (!data) {
-        try { const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
-              c.getContext('2d').drawImage(img, 0, 0); data = c.toDataURL('image/jpeg', 0.92); } catch (e) { /* blocked */ }
+      if (src.startsWith('data:')) data = src;
+      else if (direct) {   // works only if the photo storage allows it; otherwise MP Tracker's server downloads the link
+        try { const r = await fetch(src, { credentials: 'omit', cache: 'no-store' }); if (r.ok) data = await toData(await r.blob()); } catch (e) { direct = false; }
       }
-      if (data) photos[id] = data; else failed[id] = 'photo download blocked: ' + String(src).slice(0, 150);
+      if (data) photos[id] = data; else if (src.startsWith('http')) urls[id] = src; else failed[id] = 'photo link nahi mila';
     } catch (e) { failed[id] = String(e); }
   }
   try { w.close(); } catch (e) { /* ignore */ }
-  const blob = new Blob([JSON.stringify({ source: 'workforce', at: new Date().toISOString(), photos, failed })], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ source: 'workforce', at: new Date().toISOString(), photos, urls, failed })], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'workforce-photos.json';
   document.body.appendChild(a); a.click(); a.remove();
-  console.log('DONE', Object.keys(photos).length, 'photos,', Object.keys(failed).length, 'failed', failed);
-  alert('Ho gaya: ' + Object.keys(photos).length + ' photos (file: workforce-photos.json). Fail: ' + Object.keys(failed).length + '. Ab ye file MP Tracker mein chuniye.');
+  const n = Object.keys(photos).length + Object.keys(urls).length;
+  console.log('DONE', n, 'photos,', Object.keys(failed).length, 'failed', failed);
+  alert('Ho gaya: ' + n + ' photos (file: workforce-photos.json). Nahi mili: ' + Object.keys(failed).length + '. Ab ye file TURANT MP Tracker mein chuniye (photo links kuch der mein expire hote hain).');
 })();`;
 }
 
@@ -71,9 +72,11 @@ export function WorkforcePhotosModal({ employees, enrolled, onClose, onDone }: {
   employees: WfEmp[]; enrolled: Set<string>; onClose: () => void; onDone: () => void;
 }) {
   const pending = useMemo(() => employees.filter((e) => e.is_active && e.id && !enrolled.has(e.id) && wfId(e)), [employees, enrolled]);
-  const ids = useMemo(() => [...new Set(pending.map((e) => wfId(e)!))], [pending]);
+  const [batch, setBatch] = useState(100);
+  const allIds = useMemo(() => [...new Set(pending.map((e) => wfId(e)!))], [pending]);
+  const ids = useMemo(() => (batch ? allIds.slice(0, batch) : allIds), [allIds, batch]);
   const [copied, setCopied] = useState(false);
-  const [photos, setPhotos] = useState<Record<string, string> | null>(null);
+  const [photos, setPhotos] = useState<Record<string, string> | null>(null);   // id -> data URL or https link
   const [failedFetch, setFailedFetch] = useState<Record<string, string>>({});
   const [consent, setConsent] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
@@ -96,7 +99,7 @@ export function WorkforcePhotosModal({ employees, enrolled, onClose, onDone }: {
       if (f.name.toLowerCase().endsWith('.json')) {
         try {
           const j = JSON.parse(await readText(f));
-          Object.assign(got, j.photos ?? {});
+          Object.assign(got, j.urls ?? {}, j.photos ?? {});
           fails = { ...fails, ...(j.failed ?? {}) };
         } catch { setMsg(`${f.name}: sahi file nahi hai`); }
       } else if (f.type.startsWith('image/')) {
@@ -123,7 +126,9 @@ export function WorkforcePhotosModal({ employees, enrolled, onClose, onDone }: {
       for (const e of list) {
         const r: Row = { code: e.employee_code, name: e.full_name, wid, result: 'FAIL', detail: '' };
         try {
-          const img = new Image(); img.src = data; await img.decode();
+          // a link (Google Storage) is downloaded by the MP Tracker server; the browser may not read it directly
+          const src = data.startsWith('data:') ? data : (await post<{ data: string }>('admin/fetch-photo', { url: data })).data;
+          const img = new Image(); img.src = src; await img.decode();
           const fr = await analyse(img, true);
           if (fr.count !== 1 || !fr.descriptor) r.detail = fr.count > 1 ? 'Photo mein ek se zyada chehre' : 'Photo mein chehra nahi mila';
           else {
@@ -150,7 +155,10 @@ export function WorkforcePhotosModal({ employees, enrolled, onClose, onDone }: {
       {running ? <Button variant="danger" onClick={() => { stop.current = true; }}>Stop</Button>
         : <Button variant="primary" disabled={!photos || !consent || !Object.keys(photos).length} onClick={() => void start()}>Start enrolment</Button>}
     </>}>
-      <p className="small"><b>{pending.length}</b> MP ka face baaki hai{pending.length !== ids.length ? ` (${ids.length} IDs)` : ''}.</p>
+      <p className="small"><b>{pending.length}</b> MP ka face baaki hai. Ek baar mein{' '}
+        <select value={batch} onChange={(e) => { setBatch(Number(e.target.value)); setCopied(false); }}>
+          {[50, 100, 200, 0].map((n) => <option key={n} value={n}>{n || 'sab'}</option>)}</select> MP
+        <span className="muted"> (photo links kuch der mein expire hote hain — chhote batch, script ke turant baad import; phir dobara Copy script se agle MP)</span></p>
       <ol className="wf-steps">
         <li><b>Script copy kariye</b> <Button size="sm" variant="primary" disabled={!ids.length} onClick={() => void copy()}>{copied ? 'Copied ✓' : 'Copy script'}</Button>
           <textarea className="mono wf-script" readOnly value={script} onFocus={(e) => e.target.select()} /></li>
