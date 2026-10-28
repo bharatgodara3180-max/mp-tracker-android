@@ -16,7 +16,7 @@ export const ACTION_LABEL: Record<MpActionKind, string> = {
 
 /** Which actions make sense for this MP right now, for this role. Server re-validates everything. */
 export function availableActions(row: MpLive, role: AppRole | undefined): MpActionKind[] {
-  if (!role || role === 'mp') return [];
+  if (!role || role === 'mp' || role === 'ops_manager') return [];   // ops_manager: view only
   if (role === 'gate_operator') return ['correction'];
   const a: MpActionKind[] = [];
   const s = row.status;

@@ -45,7 +45,7 @@ export default function HandoverPage() {
 
   const card = (h0: HandoverLive) => {
     const h = live(h0);
-    const acts = hoActions(h, isSup);
+    const acts = profile?.role === 'ops_manager' ? [] : hoActions(h, isSup);   // ops_manager: view only
     return (
       <article key={h.id} className={`ho-card ${h.overdue ? 'overdue' : ''} ${h.status === 'DISPUTED' ? 'disputed' : ''}`}>
         <header>

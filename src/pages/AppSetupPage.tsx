@@ -54,7 +54,7 @@ export default function AppSetupPage() {
     setBusy(false);
     if (err) { setError(err); return; }
     saveAppSetup(s, 'supervisor');
-    window.location.hash = '#/deploy';
+    window.location.hash = '#/';            // after login the role decides the screen
     window.location.reload();
   };
 
@@ -65,7 +65,7 @@ export default function AppSetupPage() {
         <p className="muted">Ye device kis kaam ke liye hai?</p>
         <div className="kiosk-modes two">
           <button className={`kiosk-mode ${mode === 'gate' ? 'active' : ''}`} onClick={() => setMode('gate')}>Gate tablet<br /><span className="small">DC IN / OUT</span></button>
-          <button className={`kiosk-mode ${mode === 'supervisor' ? 'active' : ''}`} onClick={() => setMode('supervisor')}>Supervisor<br /><span className="small">Deploy / OUT assign</span></button>
+          <button className={`kiosk-mode ${mode === 'supervisor' ? 'active' : ''}`} onClick={() => setMode('supervisor')}>Login<br /><span className="small">Supervisor / Admin / Gate operator</span></button>
         </div>
         {mode === 'gate' && <>
           <Field label="Gate link" hint="Admin → Devices → GATE-FACE-TAB-01 → Gate link → Copy, aur yahan paste kariye">

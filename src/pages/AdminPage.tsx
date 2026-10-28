@@ -10,7 +10,7 @@ import { EnrollModal } from './FaceEnrollPage';
 import { SAMPLE_HEADERS, SAMPLE_ROWS, prepareRows, type ImportIssue, type ImportRow } from '../lib/employeeImport';
 
 const TABS = ['Areas & blocks', 'Shifts', 'Employees', 'Users & roles', 'Devices', 'Settings', 'Demo data'] as const;
-const ROLES: AppRole[] = ['admin', 'ops_manager', 'supervisor', 'gate_operator', 'mp'];
+const ROLES: AppRole[] = ['admin', 'ops_manager', 'supervisor', 'gate_operator'];   // MP logins are off
 
 export default function AdminPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>(TABS[0]);

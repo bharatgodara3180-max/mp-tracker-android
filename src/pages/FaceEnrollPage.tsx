@@ -22,7 +22,7 @@ export default function FaceEnrollPage() {
   const [show, setShow] = useState<'all' | 'yes' | 'no'>('all');
   const [target, setTarget] = useState<Row | null>(null);
   const [photo, setPhoto] = useState<{ name: string; url: string } | null>(null);
-  const canRemove = profile?.role === 'admin' || profile?.role === 'ops_manager';
+  const canRemove = profile?.role === 'admin';
 
   const load = () => get<Row[]>('face/enrollments').then((r) => { setRows(r); setError(null); }).catch((e) => setError(String(e.message ?? e)));
   useEffect(() => { void load(); }, []);

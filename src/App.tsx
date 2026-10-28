@@ -17,27 +17,28 @@ const GatePage = lazy(() => import('./pages/GatePage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const KioskPage = lazy(() => import('./pages/KioskPage'));
-const MyStatusPage = lazy(() => import('./pages/MyStatusPage'));
 const FaceKioskPage = lazy(() => import('./pages/FaceKioskPage'));
 const FaceEnrollPage = lazy(() => import('./pages/FaceEnrollPage'));
-const DeployPage = lazy(() => import('./pages/DeployPage'));
+const SupervisorApp = lazy(() => import('./pages/SupervisorApp'));
 const DcGatePage = lazy(() => import('./pages/DcGatePage'));
 const AppSetupPage = lazy(() => import('./pages/AppSetupPage'));
 
-const STAFF: AppRole[] = ['admin', 'ops_manager', 'supervisor'];
-const NAV: { to: string; label: string; roles: AppRole[] }[] = [
-  { to: '/', label: 'Live MPs', roles: STAFF },
-  { to: '/handovers', label: 'Handovers', roles: [...STAFF, 'mp'] },
-  { to: '/areas', label: 'Area view', roles: STAFF },
-  { to: '/alerts', label: 'Alerts', roles: [...STAFF, 'gate_operator'] },
-  { to: '/gate', label: 'Gate', roles: [...STAFF, 'gate_operator'] },
-  { to: '/reports', label: 'Reports', roles: STAFF },
+// Dashboard: admin (full control) and ops_manager (view only + report downloads).
+// Supervisors get the supervisor app, gate operators only the DC IN/OUT screen. MP logins are off.
+const DASH: AppRole[] = ['admin', 'ops_manager'];
+const NAV: { to: string; label: string; roles: AppRole[]; hidden?: boolean }[] = [
+  { to: '/', label: 'Live MPs', roles: DASH },
+  { to: '/handovers', label: 'Handovers', roles: DASH },
+  { to: '/areas', label: 'Area view', roles: DASH },
+  { to: '/alerts', label: 'Alerts', roles: DASH },
+  { to: '/gate', label: 'Gate', roles: DASH },
+  { to: '/reports', label: 'Reports', roles: DASH },
   { to: '/admin', label: 'Admin', roles: ['admin'] },
-  { to: '/me', label: 'My status', roles: ['mp'] },
-  { to: '/face-enroll', label: 'Faces', roles: STAFF },
-  { to: '/deploy', label: 'Deploy', roles: STAFF },
-  { to: '/face-kiosk', label: 'DC IN/OUT', roles: ['gate_operator', 'admin'] },
-  { to: '/kiosk', label: 'QR kiosk', roles: ['gate_operator', 'admin'] },
+  { to: '/face-enroll', label: 'Faces', roles: ['admin'] },
+  // not in the dashboard menu
+  { to: '/sup', label: 'Supervisor app', roles: ['supervisor', 'admin'], hidden: true },
+  { to: '/face-kiosk', label: 'DC IN/OUT', roles: ['gate_operator', 'admin'], hidden: true },
+  { to: '/kiosk', label: 'QR kiosk', roles: ['admin'], hidden: true },
 ];
 
 export default function App() {
@@ -53,8 +54,7 @@ export default function App() {
 }
 
 function home(role: AppRole) {
-  if (appMode() === 'supervisor' && ['admin', 'ops_manager', 'supervisor'].includes(role)) return '/deploy';   // Android app
-  return role === 'mp' ? '/me' : role === 'gate_operator' ? '/face-kiosk' : '/';
+  return role === 'supervisor' ? '/sup' : role === 'gate_operator' ? '/face-kiosk' : '/';
 }
 
 function Shell() {
@@ -71,7 +71,7 @@ function Shell() {
 
   const allowed = (path: string) => NAV.find((n) => n.to === path)?.roles.includes(profile.role) ?? false;
   const guard = (path: string, el: JSX.Element) => (allowed(path) ? el : <Navigate to={home(profile.role)} replace />);
-  const kiosk = ['/kiosk', '/face-kiosk', '/deploy'].includes(loc.pathname);
+  const kiosk = ['/kiosk', '/face-kiosk', '/sup'].includes(loc.pathname) || !DASH.includes(profile.role);
 
   return (
     <div className={`app ${kiosk ? 'app-kiosk' : ''}`}>
@@ -86,11 +86,10 @@ function Shell() {
             <Route path="/gate" element={guard('/gate', <GatePage />)} />
             <Route path="/reports" element={guard('/reports', <ReportsPage />)} />
             <Route path="/admin" element={guard('/admin', <AdminPage />)} />
-            <Route path="/me" element={guard('/me', <MyStatusPage />)} />
             <Route path="/kiosk" element={guard('/kiosk', <KioskPage />)} />
             <Route path="/face-kiosk" element={guard('/face-kiosk', <FaceKioskPage />)} />
             <Route path="/face-enroll" element={guard('/face-enroll', <FaceEnrollPage />)} />
-            <Route path="/deploy" element={guard('/deploy', <DeployPage />)} />
+            <Route path="/sup" element={guard('/sup', <SupervisorApp />)} />
             <Route path="*" element={<Navigate to={home(profile.role)} replace />} />
           </Routes>
         </Suspense>
@@ -102,7 +101,7 @@ function Shell() {
 function Header() {
   const { profile, signOut, can } = useAuth();
   const conn = useConnection();
-  const alertsOn = can('admin', 'ops_manager', 'supervisor', 'gate_operator');
+  const alertsOn = can('admin', 'ops_manager');
   const { alerts, muted, setMuted } = useOpenAlerts(alertsOn);
   const [navOpen, setNavOpen] = useState(false);
   const critical = alerts.filter((a) => a.severity === 'CRITICAL' && a.status === 'OPEN').length;
@@ -111,7 +110,7 @@ function Header() {
       <div className="brand"><span className="logo">MP</span><span>Control Tower</span></div>
       <button className="icon-btn nav-toggle" onClick={() => setNavOpen(!navOpen)} aria-label="Menu">☰</button>
       <nav className={navOpen ? 'open' : ''} onClick={() => setNavOpen(false)}>
-        {NAV.filter((n) => profile && n.roles.includes(profile.role)).map((n) => (
+        {NAV.filter((n) => profile && !n.hidden && n.roles.includes(profile.role)).map((n) => (
           <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
             {n.label}{n.to === '/alerts' && alerts.length > 0 ? <span className={`badge ${critical ? 'badge-crit' : ''}`}>{alerts.length}</span> : null}
           </NavLink>))}

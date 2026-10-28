@@ -90,7 +90,7 @@ export default function GatePage() {
           </div>}
         </section>
 
-        {(data.data.corr.length > 0) && <section className="panel">
+        {(data.data.corr.length > 0 && can('admin')) && <section className="panel">
           <h3>Corrections awaiting approval</h3>
           <table className="table compact"><thead><tr><th>Requested</th><th>Type</th><th>Details</th><th>Reason</th><th /></tr></thead><tbody>
             {data.data.corr.map((c) => <tr key={c.id}><td>{fmtDateTime(c.requested_at)}</td><td>{c.correction_type}</td><td className="small mono">{JSON.stringify(c.payload)}</td><td>{c.reason}</td>
@@ -101,7 +101,7 @@ export default function GatePage() {
           </tbody></table>
         </section>}
 
-        {can('admin', 'ops_manager', 'supervisor', 'gate_operator') && <section className="toolbar">
+        {can('admin', 'supervisor', 'gate_operator') && <section className="toolbar">
           <Field label="Manual gate correction"><input placeholder="Employee ID or name" value={pickCode} onChange={(e) => setPickCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void openCorrection()} /></Field>
           <Button onClick={() => void openCorrection()} busy={busy}>Open</Button>
           <span className="muted small">Missing or wrong scan? Record the real event with a mandatory reason. Original events are never edited.</span>

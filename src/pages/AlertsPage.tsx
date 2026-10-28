@@ -5,6 +5,7 @@ import type { Alert } from '../lib/types';
 import { fmtDateTime, fmtDuration, humanizeKey } from '../lib/format';
 import { Button, ErrorBox, Loading, Modal, Field, Pill, useAction, Empty } from '../components/ui';
 import { MpProfileDrawer } from '../components/MpProfile';
+import { useAuth } from '../hooks/useAuth';
 
 export default function AlertsPage() {
   const now = useNow(5000);
@@ -15,6 +16,7 @@ export default function AlertsPage() {
   const [note, setNote] = useState('');
   const [profile, setProfile] = useState<string | null>(null);
   const { busy, run } = useAction();
+  const readOnly = useAuth().profile?.role === 'ops_manager';   // view only
 
   const q = useLiveQuery<Alert[]>(() => get<Alert[]>('alerts', { show }), ['alerts'], [show]);
 
@@ -53,8 +55,8 @@ export default function AlertsPage() {
               </div>
               <div className="alert-actions">
                 {a.employee_id && <Button size="sm" variant="ghost" onClick={() => setProfile(a.employee_id)}>View MP</Button>}
-                {a.status === 'OPEN' && <Button size="sm" busy={busy} onClick={() => void run(() => rpc('acknowledge_alert', { p_alert_id: a.id }), 'Acknowledged').then(() => q.refresh())}>Acknowledge</Button>}
-                {a.status !== 'RESOLVED' && <Button size="sm" variant="primary" onClick={() => { setResolving(a); setNote(''); }}>Resolve</Button>}
+                {!readOnly && a.status === 'OPEN' && <Button size="sm" busy={busy} onClick={() => void run(() => rpc('acknowledge_alert', { p_alert_id: a.id }), 'Acknowledged').then(() => q.refresh())}>Acknowledge</Button>}
+                {!readOnly && a.status !== 'RESOLVED' && <Button size="sm" variant="primary" onClick={() => { setResolving(a); setNote(''); }}>Resolve</Button>}
               </div>
             </li>))}
         </ul>
