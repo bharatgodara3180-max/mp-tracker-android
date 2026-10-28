@@ -9,7 +9,8 @@ export type Presence = 'INSIDE' | 'OUTSIDE' | 'UNKNOWN';
 export type HandoverStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'DISPUTED' | 'REJECTED' | 'CANCELLED';
 export type HandoverType = 'PICKUP_RETURN' | 'DOCK' | 'PRIMARY' | 'SECONDARY' | 'STAGING' | 'OTHER';
 export type ExitPurpose = 'PICKUP' | 'LUNCH' | 'BREAK' | 'OFFICIAL' | 'SHIFT_END' | 'OTHER';
-export type AreaKind = 'PRIMARY' | 'SECONDARY' | 'STAGING' | 'DOCK' | 'BLOCK' | 'OTHER';
+/** PRIMARY / SECONDARY / STAGING / DOCK / BLOCK / OTHER, or any custom kind typed in Admin. */
+export type AreaKind = string;
 
 export interface Profile {
   user_id: string;

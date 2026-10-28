@@ -56,7 +56,10 @@ function AreasAdmin() {
         <div className="grid2">
           <Field label="Code"><input value={edit.code ?? ''} onChange={(e) => setEdit({ ...edit, code: e.target.value })} placeholder="BLK-D" /></Field>
           <Field label="Name"><input value={edit.name ?? ''} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Block D" /></Field>
-          <Field label="Kind"><select value={edit.kind} onChange={(e) => setEdit({ ...edit, kind: e.target.value as Area['kind'] })}>{['PRIMARY', 'SECONDARY', 'STAGING', 'DOCK', 'BLOCK', 'OTHER'].map((k) => <option key={k}>{k}</option>)}</select></Field>
+          <Field label="Kind" hint="Apna likhiye (jaise RTS, LOADING BAY) ya list se chuniye">
+            <input list="area-kinds" value={edit.kind ?? ''} onChange={(e) => setEdit({ ...edit, kind: e.target.value.toUpperCase() })} placeholder="PRIMARY / DOCK / apna naam" />
+            <datalist id="area-kinds">{[...new Set(['PRIMARY', 'SECONDARY', 'STAGING', 'DOCK', 'BLOCK', 'OTHER', ...areas.map((a) => a.kind)])].map((k) => <option key={k} value={k} />)}</datalist>
+          </Field>
           <Field label="Capacity (MPs)"><input type="number" min={0} value={edit.capacity ?? ''} onChange={(e) => setEdit({ ...edit, capacity: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
           <Field label="Sort order"><input type="number" value={edit.sort_order ?? 100} onChange={(e) => setEdit({ ...edit, sort_order: Number(e.target.value) })} /></Field>
         </div>
