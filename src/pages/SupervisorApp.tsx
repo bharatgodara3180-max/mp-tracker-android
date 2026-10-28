@@ -37,14 +37,18 @@ export default function SupervisorApp() {
   const [action, setAction] = useState<'deploy' | 'out'>('deploy');
   const [outPick, setOutPick] = useState<string>('LUNCH');   // OUT option id (admin-made) or a plain purpose
   // OUT options come from Admin -> Areas (OUT type); without any, plain Pickup / Lunch / Other
-  const outChoices: { key: string; label: string; purpose: OutPurpose; areaId?: string }[] = ref.outOptions.length
-    ? ref.outOptions.map((o) => ({ key: o.id, label: o.name, purpose: (o.out_purpose ?? 'OTHER') as OutPurpose, areaId: o.id }))
-    : [{ key: 'PICKUP', label: 'Pickup', purpose: 'PICKUP' }, { key: 'LUNCH', label: 'Lunch', purpose: 'LUNCH' }, { key: 'OTHER', label: 'Other', purpose: 'OTHER' }];
+  // Pickup is not an OUT-assign option: MPs are deployed into the Pickup area instead
+  const outOpts = ref.outOptions.filter((o) => o.out_purpose !== 'PICKUP');
+  const pickAreas = [...ref.workAreas, ...ref.outOptions.filter((o) => o.out_purpose === 'PICKUP')];
+  const outChoices: { key: string; label: string; purpose: OutPurpose; areaId?: string }[] = outOpts.length
+    ? outOpts.map((o) => ({ key: o.id, label: o.name, purpose: (o.out_purpose ?? 'OTHER') as OutPurpose, areaId: o.id }))
+    : [{ key: 'LUNCH', label: 'Lunch', purpose: 'LUNCH' }, { key: 'OTHER', label: 'Other', purpose: 'OTHER' }];
   const outChoice = outChoices.find((c) => c.key === outPick) ?? outChoices[0];
   const purpose = outChoice?.purpose ?? 'LUNCH';
   const [route, setRoute] = useState('');
   const [count, setCount] = useState(0);
-  const areaRow = ref.workAreas.find((a) => a.id === area);
+  const areaRow = pickAreas.find((a) => a.id === area);
+  const isPickupArea = areaRow?.out_purpose === 'PICKUP';
 
   const inbox = useLiveQuery<Transfer[]>(() => (area ? get<Transfer[]>('transfer/incoming', { area_id: area }) : Promise.resolve([])), [], [area], { pollMs: 15000 });
   const pending = inbox.data?.length ?? 0;
@@ -62,7 +66,7 @@ export default function SupervisorApp() {
         <button className="btn btn-ghost btn-sm" onClick={logout}>{Icon.logout} Logout</button></header>
       <h2 className="sup-title">Apna Work Area chuniye</h2>
       <div className="area-grid">
-        {ref.workAreas.map((a) => <button key={a.id} className="area-btn" onClick={() => pickArea(a.id)}><b>{a.name}</b><span>{a.code}</span></button>)}
+        {pickAreas.map((a) => <button key={a.id} className="area-btn" onClick={() => pickArea(a.id)}><b>{a.name}</b><span>{a.code}</span></button>)}
       </div>
       <InstallAppButton label="Phone pe app install karein" className="btn btn-sm install-strip" />
     </div>
@@ -98,7 +102,8 @@ export default function SupervisorApp() {
       <ScanPanel active={sheet === null} buttonLabel={action === 'deploy' ? 'Deploy' : 'OUT assign'} submit={submit}
                  onResult={(r) => { if (['DEPLOYED', 'OUT ASSIGNED'].includes(r.result.label) && !r.repeat) setCount((c) => c + 1); }} />
       <p className="muted small kiosk-foot">{action === 'deploy'
-        ? `Scan kiye MP ${areaRow.name} mein deploy honge. Doosre area wale MP ke liye pehle wahan se handover chahiye.`
+        ? (isPickupArea ? `Scan kiye MP ${areaRow.name} ke liye assign honge ("Assigned for ${areaRow.name}"), gate se OUT hote hi "On ${areaRow.name}".`
+          : `Scan kiye MP ${areaRow.name} mein deploy honge. Doosre area wale MP ke liye pehle wahan se handover chahiye.`)
         : 'Gate pe DC OUT sirf assign hue OUT se hoga. 9 ghante baad shift-end OUT ke liye assign ki zarurat nahi.'}</p>
 
       {sheet === 'deployment' && <DeploymentSheet myArea={area} areas={ref.workAreas} onClose={() => setSheet(null)} />}
