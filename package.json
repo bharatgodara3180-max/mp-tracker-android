@@ -1,0 +1,34 @@
+{
+  "name": "mp-tracker-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MP Control Tower frontend (served by the local FastAPI server)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "test": "vitest run",
+    "build:app": "vite build --outDir dist-app --emptyOutDir",
+    "cap:sync": "npm run build:app && npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@vladmandic/face-api": "^1.7.15",
+    "jsqr": "^1.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "write-excel-file": "^4.1.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "~5.8.3",
+    "vite": "^5.4.21",
+    "vitest": "^3.2.7"
+  }
+}

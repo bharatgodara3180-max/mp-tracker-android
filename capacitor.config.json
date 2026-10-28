@@ -1,0 +1,7 @@
+{
+  "appId": "com.rajeev.mptracker",
+  "appName": "MP Tracker",
+  "webDir": "dist-app",
+  "server": { "androidScheme": "http", "cleartext": true },
+  "android": { "allowMixedContent": true, "captureInput": true }
+}

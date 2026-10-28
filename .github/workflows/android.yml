@@ -1,0 +1,42 @@
+name: Android APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Web app bundle (models included)
+        run: |
+          npm ci
+          npm run build:app
+          npx cap sync android
+      - name: Build signed APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease -PMP_STORE_PASSWORD="${{ secrets.MP_STORE_PASSWORD }}" -PMP_KEY_PASSWORD="${{ secrets.MP_STORE_PASSWORD }}"
+      - name: Rename
+        run: cp android/app/build/outputs/apk/release/app-release.apk "MP-Tracker-1.0.${{ github.run_number }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MP-Tracker-apk
+          path: MP-Tracker-*.apk
+      - name: Publish as a release (download link)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v1.0.${{ github.run_number }}" "MP-Tracker-1.0.${{ github.run_number }}.apk" \
+            --title "MP Tracker 1.0.${{ github.run_number }}" --notes "Android APK (Gate DC IN/OUT + Supervisor Deploy). Commit ${{ github.sha }}"

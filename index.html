@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1117" />
+    <title>MP Control Tower</title>
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="apple-touch-icon" href="icon-gate-192.png" id="apple-icon" />
+    <link rel="manifest" href="manifest-deploy.webmanifest" id="app-manifest" />
+    <script>
+      // Gate tablet installs "DC IN/OUT", everyone else "MP Deploy"
+      (function () {
+        var gate = /app=gate/.test(location.search) || /dc-gate|face-kiosk/.test(location.hash);
+        document.getElementById('app-manifest').href = gate ? 'manifest-gate.webmanifest' : 'manifest-deploy.webmanifest';
+        document.getElementById('apple-icon').href = gate ? 'icon-gate-192.png' : 'icon-deploy-192.png';
+      })();
+    </script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23f5a524'/><path d='M8 22V10l8 7 8-7v12' stroke='%230d1117' stroke-width='3' fill='none'/></svg>" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "id": "./?app=deploy",
+  "name": "MP Deploy",
+  "short_name": "MP Deploy",
+  "start_url": "./?app=deploy#/deploy",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1559a8",
+  "theme_color": "#1559a8",
+  "icons": [
+    {
+      "src": "icon-deploy-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-deploy-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
