@@ -27,20 +27,24 @@ export default function AreasPage() {
   const live = useLiveQuery<{ rows: MpLive[]; kpis: Kpis }>(async () => {
     const r = await get<{ rows: MpLive[]; kpis: Kpis }>('live', { include_demo: !hideDemo });
     return { rows: r.rows.filter((x) => x.status !== 'NOT_CHECKED_IN' && x.status !== 'SHIFT_ENDED'), kpis: r.kpis };
-  }, ['mp_current_state', 'handover_records', 'alerts', 'work_assignments'], [hideDemo]);
+  }, ['mp_current_state', 'handover_records', 'alerts', 'work_assignments', 'pickup_assignments'], [hideDemo]);
 
   const panels = useMemo<Panel[]>(() => {
     const rows = (live.data?.rows ?? []).filter((r) => !hideDemo || !r.is_demo);
     const byArea = new Map<string, MpLive[]>();
     rows.filter((r) => r.status === 'WORKING' && r.area_id).forEach((r) => byArea.set(r.area_id!, [...(byArea.get(r.area_id!) ?? []), r]));
     const areaPanels: Panel[] = ref.areas
-      .filter((a) => a.is_active || byArea.has(a.id))
-      .map((a) => ({ key: a.id, title: a.name, capacity: a.capacity, tone: 'green', members: byArea.get(a.id) ?? [] }));
+      .filter((a) => !a.out_purpose && (a.is_active || byArea.has(a.id)))
+      .map((a) => ({ key: a.id, title: a.name, capacity: null, tone: 'green', members: byArea.get(a.id) ?? [] }));
+    // two panels per OUT option made in Admin -> Areas: Assigned for X -> On X
+    const outPanels: Panel[] = ref.areas.filter((a) => a.out_purpose && a.is_active).flatMap((a) => [
+      { key: `asg:${a.id}`, title: `Assigned for ${a.name}`, capacity: null, tone: 'amber', members: rows.filter((r) => r.out_state === 'ASSIGNED' && r.out_area_id === a.id) },
+      { key: `out:${a.id}`, title: `On ${a.name}`, capacity: null, tone: a.out_purpose === 'LUNCH' ? 'violet' : 'blue', members: rows.filter((r) => r.out_state === 'OUT' && r.out_area_id === a.id) },
+    ]);
     return [
       ...areaPanels,
-      { key: 'outside', title: 'Outside / Pickup', capacity: null, tone: 'blue', members: rows.filter((r) => ['OUTSIDE_PICKUP', 'OUTSIDE_OFFICIAL', 'OUTSIDE_OTHER', 'OUTSIDE_UNDECLARED'].includes(r.status)) },
+      ...outPanels,
       { key: 'handover', title: 'Handover', capacity: null, tone: 'orange', members: rows.filter((r) => r.status.startsWith('HANDOVER')) },
-      { key: 'break', title: 'Lunch / Break', capacity: null, tone: 'violet', members: rows.filter((r) => r.status === 'ON_BREAK' || r.status === 'OUTSIDE_BREAK') },
       { key: 'unassigned', title: 'Unassigned', capacity: null, tone: 'amber', members: rows.filter((r) => r.status === 'INSIDE_UNASSIGNED') },
     ];
   }, [live.data, ref.areas, hideDemo]);
@@ -51,8 +55,7 @@ export default function AreasPage() {
       <section className="toolbar">
         {tv && <div className="tv-title">MP Control Tower <span className="muted">· {new Date(now).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false })}</span></div>}
         {k && <div className="tv-strip">
-          <span><b>{k.inside}</b> inside</span><span><b>{k.outside}</b> outside</span><span><b>{k.on_pickup}</b> pickup</span>
-          <span><b>{k.on_break}</b> break</span><span className={k.handover_pending ? 'warn-text' : ''}><b>{k.handover_pending}</b> handover pending</span>
+          <span><b>{k.total_on_shift}</b> on shift</span><span><b>{k.inside}</b> inside</span><span className={k.handover_pending ? 'warn-text' : ''}><b>{k.handover_pending}</b> handover pending</span>
           <span className={k.handover_overdue ? 'delay' : ''}><b>{k.handover_overdue}</b> overdue</span><span><b>{k.unassigned}</b> unassigned</span>
         </div>}
         <span className="spacer" />

@@ -118,7 +118,7 @@ export function MpActionModal({ kind, row, refData, onClose, onDone }:
     }
   }
 
-  const areaOptions = refData.activeAreas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>);
+  const areaOptions = refData.workAreas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>);
 
   return (
     <Modal title={`${ACTION_LABEL[kind]} — ${row.full_name} (${row.employee_code})`} onClose={onClose}

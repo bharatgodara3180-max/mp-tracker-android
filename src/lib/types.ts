@@ -51,6 +51,9 @@ export interface MpLive {
   pickup_destination: string | null;
   departed_at: string | null;
   expected_return_at: string | null;
+  out_state: 'ASSIGNED' | 'OUT' | null;     // supervisor gave OUT (still inside) / gone out through the gate
+  out_area_id: string | null;
+  out_area_name: string | null;
   break_id: string | null;
   break_type: string | null;
   break_location: Presence | null;
@@ -132,8 +135,12 @@ export interface Area {
   capacity: number | null;
   receives_handover: boolean;
   sort_order: number;
+  out_purpose: OutPurpose | null;          // set = OUT option (Lunch / Pickup / Other…), not a work area
   is_active: boolean;
 }
+
+export type OutPurpose = 'PICKUP' | 'LUNCH' | 'OTHER';
+export interface KpiArea { id: string; code: string; name: string; kind: string; out_purpose: OutPurpose | null; working: number; assigned: number; out: number }
 
 export interface Shift {
   id: string;
@@ -203,7 +210,7 @@ export interface GateLogRow {
 export type Kpis = Record<
   | 'total_on_shift' | 'inside' | 'outside' | 'on_pickup' | 'on_break' | 'primary' | 'secondary' | 'staging'
   | 'dock' | 'other_blocks' | 'handover_pending' | 'handover_overdue' | 'unassigned' | 'exceptions' | 'not_checked_in',
-  number> & { computed_at: string };
+  number> & { computed_at: string; areas?: KpiArea[] };
 
 export interface RpcResult {
   ok: boolean;

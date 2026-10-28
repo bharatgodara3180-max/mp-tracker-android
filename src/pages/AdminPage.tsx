@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { get, post, put, rpc } from '../lib/api';
+import { del, get, post, put, rpc } from '../lib/api';
 import { useLiveQuery } from '../hooks/useLive';
 import { useRefData } from '../hooks/useRefData';
 import { useAuth } from '../hooks/useAuth';
@@ -38,32 +38,44 @@ function AreasAdmin() {
   if (loading) return <Loading />;
   const submit = async () => {
     if (!edit?.code || !edit.name || !edit.kind) return;
-    const row = { code: edit.code, name: edit.name, kind: edit.kind, capacity: edit.capacity || null,
-                  receives_handover: !!edit.receives_handover, sort_order: Number(edit.sort_order ?? 100), is_active: edit.is_active ?? true };
+    const row = { code: edit.code, name: edit.name, kind: edit.kind, out_purpose: edit.out_purpose || null, is_active: edit.is_active ?? true };
     if (await run(() => save('areas', row, edit.id), 'Area saved')) setEdit(null);
   };
+  const remove = async (a: Area) => {
+    if (!confirm(`Delete ${a.name}? (Jiski history hai wo delete nahi hoga — Disable kariye)`)) return;
+    await run(() => del(`admin/areas/${a.id}`), 'Area deleted');
+  };
+  const OUT_LABEL: Record<string, string> = { PICKUP: 'OUT · Pickup', LUNCH: 'OUT · Lunch', OTHER: 'OUT · Other' };
   return (
     <section className="panel">
-      <div className="row between"><h3>Areas & blocks</h3><Button variant="primary" size="sm" onClick={() => setEdit({ kind: 'BLOCK', is_active: true, sort_order: 100 })}>Add area</Button></div>
-      <p className="muted small">Areas are never deleted (history refers to them) — disable instead. Changes apply live on every dashboard.</p>
-      <table className="table compact"><thead><tr><th>Code</th><th>Name</th><th>Kind</th><th>Capacity</th><th>Receives handover</th><th>Order</th><th>Status</th><th /></tr></thead>
-        <tbody>{areas.map((a) => <tr key={a.id} className={a.is_active ? '' : 'muted'}><td className="mono">{a.code}</td><td>{a.name}</td><td>{a.kind}</td><td>{a.capacity ?? '—'}</td>
-          <td>{a.receives_handover ? 'Yes' : ''}</td><td>{a.sort_order}</td><td>{a.is_active ? <Pill tone="green">Active</Pill> : <Pill tone="gray">Disabled</Pill>}</td>
+      <div className="row between"><h3>Areas & OUT options</h3><Button variant="primary" size="sm" onClick={() => setEdit({ kind: 'BLOCK', is_active: true, out_purpose: null })}>Add area</Button></div>
+      <p className="muted small">Work areas yahan banaiye — Live dashboard aur supervisor app mein yahi dikhenge. Handover sab areas mein allowed hai.
+        OUT option (Lunch / Pickup / Other…) banane ke liye "OUT type" chuniye — supervisor ke OUT assign mein yahi aayenge, aur Live mein har OUT option ke 2 card: "Assigned for …" aur "On …".</p>
+      <table className="table compact"><thead><tr><th>Code</th><th>Name</th><th>Kind</th><th>Type</th><th>Status</th><th /></tr></thead>
+        <tbody>{areas.map((a) => <tr key={a.id} className={a.is_active ? '' : 'muted'}><td className="mono">{a.code}</td><td>{a.name}</td><td>{a.kind}</td>
+          <td>{a.out_purpose ? <Pill tone="blue">{OUT_LABEL[a.out_purpose] ?? a.out_purpose}</Pill> : 'Work area'}</td>
+          <td>{a.is_active ? <Pill tone="green">Active</Pill> : <Pill tone="gray">Disabled</Pill>}</td>
           <td><Button size="sm" variant="ghost" onClick={() => setEdit(a)}>Edit</Button>
-            <Button size="sm" variant="ghost" busy={busy} onClick={() => void run(() => save('areas', { is_active: !a.is_active }, a.id), a.is_active ? 'Disabled' : 'Enabled')}>{a.is_active ? 'Disable' : 'Enable'}</Button></td></tr>)}</tbody></table>
-      {edit && <Modal title={edit.id ? `Edit ${edit.name}` : 'Add area / block'} onClose={() => setEdit(null)}
+            <Button size="sm" variant="ghost" busy={busy} onClick={() => void run(() => save('areas', { is_active: !a.is_active }, a.id), a.is_active ? 'Disabled' : 'Enabled')}>{a.is_active ? 'Disable' : 'Enable'}</Button>
+            <Button size="sm" variant="ghost" busy={busy} onClick={() => void remove(a)}>Delete</Button></td></tr>)}</tbody></table>
+      {edit && <Modal title={edit.id ? `Edit ${edit.name}` : 'Add area / OUT option'} onClose={() => setEdit(null)}
         footer={<><Button variant="ghost" onClick={() => setEdit(null)}>Cancel</Button><Button variant="primary" busy={busy} onClick={() => void submit()}>Save</Button></>}>
         <div className="grid2">
-          <Field label="Code"><input value={edit.code ?? ''} onChange={(e) => setEdit({ ...edit, code: e.target.value })} placeholder="BLK-D" /></Field>
-          <Field label="Name"><input value={edit.name ?? ''} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Block D" /></Field>
+          <Field label="Code"><input value={edit.code ?? ''} onChange={(e) => setEdit({ ...edit, code: e.target.value })} placeholder="BLK-D / LUNCH" /></Field>
+          <Field label="Name"><input value={edit.name ?? ''} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Block D / Lunch" /></Field>
           <Field label="Kind" hint="Apna likhiye (jaise RTS, LOADING BAY) ya list se chuniye">
             <input list="area-kinds" value={edit.kind ?? ''} onChange={(e) => setEdit({ ...edit, kind: e.target.value.toUpperCase() })} placeholder="PRIMARY / DOCK / apna naam" />
-            <datalist id="area-kinds">{[...new Set(['PRIMARY', 'SECONDARY', 'STAGING', 'DOCK', 'BLOCK', 'OTHER', ...areas.map((a) => a.kind)])].map((k) => <option key={k} value={k} />)}</datalist>
+            <datalist id="area-kinds">{[...new Set(['PRIMARY', 'SECONDARY', 'STAGING', 'DOCK', 'BLOCK', 'OUT', ...areas.map((a) => a.kind)])].map((k) => <option key={k} value={k} />)}</datalist>
           </Field>
-          <Field label="Capacity (MPs)"><input type="number" min={0} value={edit.capacity ?? ''} onChange={(e) => setEdit({ ...edit, capacity: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
-          <Field label="Sort order"><input type="number" value={edit.sort_order ?? 100} onChange={(e) => setEdit({ ...edit, sort_order: Number(e.target.value) })} /></Field>
+          <Field label="Type" hint="OUT type = ye area OUT option hai (deploy nahi hota)">
+            <select value={edit.out_purpose ?? ''} onChange={(e) => setEdit({ ...edit, out_purpose: (e.target.value || null) as Area['out_purpose'], kind: e.target.value && !edit.kind ? 'OUT' : edit.kind })}>
+              <option value="">Work area (deploy)</option>
+              <option value="LUNCH">OUT · Lunch (45 min return rule)</option>
+              <option value="PICKUP">OUT · Pickup</option>
+              <option value="OTHER">OUT · Other</option>
+            </select>
+          </Field>
         </div>
-        <label className="check"><input type="checkbox" checked={!!edit.receives_handover} onChange={(e) => setEdit({ ...edit, receives_handover: e.target.checked })} /> Receives handovers</label>
         <label className="check"><input type="checkbox" checked={edit.is_active ?? true} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} /> Active</label>
       </Modal>}
     </section>
@@ -319,14 +331,14 @@ function DevicesAdmin() {
   };
   const submit = async () => {
     if (!edit?.device_code || !edit.name) return;
-    const row = { device_code: edit.device_code, name: edit.name, adapter: edit.adapter ?? 'generic_webhook', direction_mode: edit.direction_mode ?? 'toggle',
+    const row = { device_code: edit.device_code, name: edit.name, adapter: edit.adapter ?? 'face_kiosk', direction_mode: edit.direction_mode ?? 'toggle',
                   location_label: edit.location_label ?? null, is_active: edit.is_active ?? true };
     if (await run(() => save('devices', row, edit.id), 'Device saved')) { setEdit(null); list.refresh(); }
   };
   return (
     <section className="panel">
-      <div className="row between"><h3>Gate devices</h3><Button size="sm" variant="primary" onClick={() => setEdit({ adapter: 'generic_webhook', direction_mode: 'toggle', is_active: true })}>Register device</Button></div>
-      <p className="muted small">Each device signs its requests with its own secret. "Show new secret" rotates it and displays it once — enter it on the tablet / relay. The old secret stops working immediately.</p>
+      <div className="row between"><h3>Gate devices</h3><Button size="sm" variant="primary" onClick={() => setEdit({ adapter: 'face_kiosk', direction_mode: 'toggle', is_active: true, location_label: 'DC entrance' })}>Register device</Button></div>
+      <p className="muted small">Gate tablet = adapter <b>face_kiosk</b> → save karke "Gate link". Each device signs its requests with its own secret. "Show new secret" rotates it and displays it once — enter it on the tablet / relay. The old secret stops working immediately.</p>
       {!list.data ? <Loading /> : <table className="table compact"><thead><tr><th>Code</th><th>Name</th><th>Adapter</th><th>Direction</th><th>Location</th><th>Heartbeat</th><th>Active</th><th /></tr></thead>
         <tbody>{list.data.map((d) => <tr key={d.id}><td className="mono">{d.device_code}</td><td>{d.name}</td><td>{d.adapter}</td><td>{d.direction_mode}</td><td>{d.location_label ?? ''}</td><td>{fmtDateTime(d.last_heartbeat_at)}</td><td>{d.is_active ? 'Yes' : 'No'}</td>
           <td><Button size="sm" variant="ghost" onClick={() => setEdit({ ...d, is_active: !!d.is_active })}>Edit</Button>
@@ -335,7 +347,12 @@ function DevicesAdmin() {
               if (!confirm(`Rotate the secret for ${d.device_code}? The tablet must be updated with the new one.`)) return;
               const r = await run(() => post<{ secret: string }>(`admin/devices/${d.id}/rotate-secret`));
               if (r) setSecret({ code: d.device_code, secret: r.secret });
-            }}>Show new secret</Button>}</td></tr>)}</tbody></table>}
+            }}>Show new secret</Button>}
+            <Button size="sm" variant="ghost" busy={busy} onClick={async () => {
+              if (!confirm(`Delete device ${d.device_code}? (Jiske scans hain wo delete nahi hoga — Edit karke Active hataiye)`)) return;
+              if (await run(() => del(`admin/devices/${d.id}`), 'Device deleted')) list.refresh();
+            }}>Delete</Button></td></tr>)}</tbody></table>}
+      {list.data && !list.data.length && <p className="muted small">Koi device nahi. Gate tablet ke liye "Register device" (adapter face_kiosk) dabaiye, phir "Gate link" se link lijiye.</p>}
       {link && <Modal title={`Gate link — ${link.code}`} onClose={() => setLink(null)} footer={<>
         <Button variant="ghost" busy={busy} onClick={() => { if (confirm('Make a new link? The tablet with the old link will stop working until you open the new one.')) void openLink(link.id, true); }}>New link (old stops)</Button>
         <Button variant="primary" onClick={() => setLink(null)}>Done</Button></>}>

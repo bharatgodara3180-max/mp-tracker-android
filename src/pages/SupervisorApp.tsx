@@ -35,10 +35,16 @@ export default function SupervisorApp() {
   const [area, setArea] = useState(() => localStorage.getItem(areaKey) ?? '');
   const [sheet, setSheet] = useState<Sheet>(null);
   const [action, setAction] = useState<'deploy' | 'out'>('deploy');
-  const [purpose, setPurpose] = useState<OutPurpose>('LUNCH');
+  const [outPick, setOutPick] = useState<string>('LUNCH');   // OUT option id (admin-made) or a plain purpose
+  // OUT options come from Admin -> Areas (OUT type); without any, plain Pickup / Lunch / Other
+  const outChoices: { key: string; label: string; purpose: OutPurpose; areaId?: string }[] = ref.outOptions.length
+    ? ref.outOptions.map((o) => ({ key: o.id, label: o.name, purpose: (o.out_purpose ?? 'OTHER') as OutPurpose, areaId: o.id }))
+    : [{ key: 'PICKUP', label: 'Pickup', purpose: 'PICKUP' }, { key: 'LUNCH', label: 'Lunch', purpose: 'LUNCH' }, { key: 'OTHER', label: 'Other', purpose: 'OTHER' }];
+  const outChoice = outChoices.find((c) => c.key === outPick) ?? outChoices[0];
+  const purpose = outChoice?.purpose ?? 'LUNCH';
   const [route, setRoute] = useState('');
   const [count, setCount] = useState(0);
-  const areaRow = ref.activeAreas.find((a) => a.id === area);
+  const areaRow = ref.workAreas.find((a) => a.id === area);
 
   const inbox = useLiveQuery<Transfer[]>(() => (area ? get<Transfer[]>('transfer/incoming', { area_id: area }) : Promise.resolve([])), [], [area], { pollMs: 15000 });
   const pending = inbox.data?.length ?? 0;
@@ -48,7 +54,7 @@ export default function SupervisorApp() {
   const pickArea = (id: string) => { setArea(id); try { localStorage.setItem(areaKey, id); } catch { /* ignore */ } };
   const logout = () => { try { localStorage.removeItem(areaKey); } catch { /* ignore */ } signOut(); };
 
-  if (ref.loading && !ref.activeAreas.length) return <div className="center-screen"><Loading /></div>;
+  if (ref.loading && !ref.workAreas.length) return <div className="center-screen"><Loading /></div>;
 
   if (!areaRow) return (
     <div className="kiosk sup-pick">
@@ -56,7 +62,7 @@ export default function SupervisorApp() {
         <button className="btn btn-ghost btn-sm" onClick={logout}>{Icon.logout} Logout</button></header>
       <h2 className="sup-title">Apna Work Area chuniye</h2>
       <div className="area-grid">
-        {ref.activeAreas.map((a) => <button key={a.id} className="area-btn" onClick={() => pickArea(a.id)}><b>{a.name}</b><span>{a.code}</span></button>)}
+        {ref.workAreas.map((a) => <button key={a.id} className="area-btn" onClick={() => pickArea(a.id)}><b>{a.name}</b><span>{a.code}</span></button>)}
       </div>
       <InstallAppButton label="Phone pe app install karein" className="btn btn-sm install-strip" />
     </div>
@@ -64,7 +70,7 @@ export default function SupervisorApp() {
 
   const submit = (id: ScanId) => (action === 'deploy'
     ? post<ScanReply>('face/deploy', { ...id, area_id: area })
-    : post<ScanReply>('face/assign-out', { ...id, purpose, area_id: area, route_ref: purpose === 'PICKUP' ? route.trim() || null : null }));
+    : post<ScanReply>('face/assign-out', { ...id, purpose, out_area_id: outChoice?.areaId, area_id: area, route_ref: purpose === 'PICKUP' ? route.trim() || null : null }));
 
   return (
     <div className="kiosk sup-app">
@@ -86,7 +92,7 @@ export default function SupervisorApp() {
       </div>
       {action === 'out' && <div className="out-purpose">
         <span className="muted small">OUT kis liye:</span>
-        {(['PICKUP', 'LUNCH', 'OTHER'] as const).map((p) => <button key={p} className={`tag ${purpose === p ? 'on' : ''}`} onClick={() => setPurpose(p)}>{p === 'PICKUP' ? 'Pickup' : p === 'LUNCH' ? 'Lunch' : 'Other'}</button>)}
+        {outChoices.map((c) => <button key={c.key} className={`tag ${outChoice?.key === c.key ? 'on' : ''}`} onClick={() => setOutPick(c.key)}>{c.label}</button>)}
         {purpose === 'PICKUP' && <input className="route-input" value={route} onChange={(e) => setRoute(e.target.value)} placeholder="Route / ref (optional)" />}
       </div>}
       <ScanPanel active={sheet === null} buttonLabel={action === 'deploy' ? 'Deploy' : 'OUT assign'} submit={submit}
@@ -95,8 +101,8 @@ export default function SupervisorApp() {
         ? `Scan kiye MP ${areaRow.name} mein deploy honge. Doosre area wale MP ke liye pehle wahan se handover chahiye.`
         : 'Gate pe DC OUT sirf assign hue OUT se hoga. 9 ghante baad shift-end OUT ke liye assign ki zarurat nahi.'}</p>
 
-      {sheet === 'deployment' && <DeploymentSheet myArea={area} areas={ref.activeAreas} onClose={() => setSheet(null)} />}
-      {sheet === 'handover' && <HandoverSheet myArea={areaRow} areas={ref.activeAreas} onClose={() => setSheet(null)} />}
+      {sheet === 'deployment' && <DeploymentSheet myArea={area} areas={ref.workAreas} onClose={() => setSheet(null)} />}
+      {sheet === 'handover' && <HandoverSheet myArea={areaRow} areas={ref.workAreas} onClose={() => setSheet(null)} />}
       {sheet === 'inbox' && <InboxSheet myArea={areaRow} items={inbox.data ?? []} onChanged={() => void inbox.refresh()} onClose={() => setSheet(null)} />}
     </div>
   );
@@ -118,7 +124,7 @@ function DeploymentSheet({ myArea, areas, onClose }: { myArea: string; areas: Ar
   const rows = live.data?.rows ?? [];
   const working = (id: string) => rows.filter((r) => r.status === 'WORKING' && r.area_id === id);
   const unassigned = rows.filter((r) => r.status === 'INSIDE_UNASSIGNED');
-  const ordered = [...areas].sort((a, b) => (a.id === myArea ? -1 : b.id === myArea ? 1 : a.sort_order - b.sort_order));
+  const ordered = [...areas].sort((a, b) => (a.id === myArea ? -1 : b.id === myArea ? 1 : a.name.localeCompare(b.name)));
   return (
     <SheetFrame title="Current deployment (area-wise)" onClose={onClose}>
       {!live.data ? <Loading /> : <>

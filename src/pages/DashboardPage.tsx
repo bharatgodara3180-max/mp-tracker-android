@@ -11,23 +11,31 @@ import { Pill, Button, ErrorBox, Loading } from '../components/ui';
 import { MpProfileDrawer } from '../components/MpProfile';
 import { MpActionModal, availableActions, ACTION_LABEL, type MpActionKind } from '../components/MpActions';
 
-type KpiDef = { key: keyof Kpis; label: string; tone: string; filter?: (r: MpLive) => boolean };
-const KPI_DEFS: KpiDef[] = [
-  { key: 'total_on_shift', label: 'On shift', tone: 'neutral', filter: (r) => !['NOT_CHECKED_IN', 'SHIFT_ENDED'].includes(r.status) },
-  { key: 'inside', label: 'Inside DC', tone: 'green', filter: (r) => r.presence === 'INSIDE' && !['NOT_CHECKED_IN', 'SHIFT_ENDED'].includes(r.status) },
-  { key: 'outside', label: 'Outside DC', tone: 'blue', filter: (r) => r.status.startsWith('OUTSIDE') },
-  { key: 'on_pickup', label: 'On pickup', tone: 'blue', filter: (r) => r.status === 'OUTSIDE_PICKUP' },
-  { key: 'on_break', label: 'Lunch / break', tone: 'violet', filter: (r) => r.status === 'ON_BREAK' || r.status === 'OUTSIDE_BREAK' },
-  { key: 'primary', label: 'Primary', tone: 'green', filter: (r) => r.status === 'WORKING' && r.area_kind === 'PRIMARY' },
-  { key: 'secondary', label: 'Secondary', tone: 'green', filter: (r) => r.status === 'WORKING' && r.area_kind === 'SECONDARY' },
-  { key: 'staging', label: 'Staging', tone: 'green', filter: (r) => r.status === 'WORKING' && r.area_kind === 'STAGING' },
-  { key: 'dock', label: 'Dock', tone: 'green', filter: (r) => r.status === 'WORKING' && r.area_kind === 'DOCK' },
-  { key: 'other_blocks', label: 'Other blocks', tone: 'green', filter: (r) => r.status === 'WORKING' && (r.area_kind === 'BLOCK' || r.area_kind === 'OTHER') },
-  { key: 'handover_pending', label: 'Handover pending', tone: 'orange', filter: (r) => r.status === 'HANDOVER_PENDING' || r.status === 'HANDOVER_IN_PROGRESS' },
-  { key: 'handover_overdue', label: 'Handover overdue', tone: 'red', filter: (r) => (r.status === 'HANDOVER_PENDING' || r.status === 'HANDOVER_IN_PROGRESS') && !!r.handover_due_at && Date.now() > new Date(r.handover_due_at).getTime() },
-  { key: 'unassigned', label: 'Unassigned', tone: 'amber', filter: (r) => r.status === 'INSIDE_UNASSIGNED' },
-  { key: 'exceptions', label: 'Exceptions', tone: 'red', filter: (r) => r.open_alerts > 0 || delaySeconds(r.expected_by) > 0 || ['OUTSIDE_UNDECLARED', 'HANDOVER_DISPUTED'].includes(r.status) },
+type KpiDef = { key: string; label: string; tone: string; alarm?: boolean; value: (k: Kpis) => number; filter?: (r: MpLive) => boolean };
+const ON = (r: MpLive) => !['NOT_CHECKED_IN', 'SHIFT_ENDED'].includes(r.status);
+const HEAD: KpiDef[] = [
+  { key: 'total_on_shift', label: 'On shift', tone: 'neutral', value: (k) => k.total_on_shift, filter: ON },
+  { key: 'inside', label: 'Inside DC', tone: 'green', value: (k) => k.inside, filter: (r) => r.presence === 'INSIDE' && ON(r) },
 ];
+const TAIL: KpiDef[] = [
+  { key: 'handover_pending', label: 'Handover pending', tone: 'orange', value: (k) => k.handover_pending, filter: (r) => r.status === 'HANDOVER_PENDING' || r.status === 'HANDOVER_IN_PROGRESS' },
+  { key: 'handover_overdue', label: 'Handover overdue', tone: 'red', alarm: true, value: (k) => k.handover_overdue, filter: (r) => (r.status === 'HANDOVER_PENDING' || r.status === 'HANDOVER_IN_PROGRESS') && !!r.handover_due_at && Date.now() > new Date(r.handover_due_at).getTime() },
+  { key: 'unassigned', label: 'Unassigned', tone: 'amber', value: (k) => k.unassigned, filter: (r) => r.status === 'INSIDE_UNASSIGNED' },
+  { key: 'exceptions', label: 'Exceptions', tone: 'red', alarm: true, value: (k) => k.exceptions, filter: (r) => ON(r) && (r.open_alerts > 0 || delaySeconds(r.expected_by) > 0 || ['OUTSIDE_UNDECLARED', 'HANDOVER_DISPUTED'].includes(r.status)) },
+];
+
+/** Cards follow Admin -> Areas: one per work area, and two per OUT option ("Assigned for X" -> "On X"). */
+function kpiDefs(k: Kpis | undefined): KpiDef[] {
+  const areas = k?.areas ?? [];
+  const pick = (id: string, f: 'working' | 'assigned' | 'out') => (kk: Kpis) => kk.areas?.find((a) => a.id === id)?.[f] ?? 0;
+  const work: KpiDef[] = areas.filter((a) => !a.out_purpose).map((a) => ({ key: `area:${a.id}`, label: a.name, tone: 'green',
+    value: pick(a.id, 'working'), filter: (r) => r.status === 'WORKING' && r.area_id === a.id }));
+  const out: KpiDef[] = areas.filter((a) => a.out_purpose).flatMap((a) => [
+    { key: `asg:${a.id}`, label: `Assigned for ${a.name}`, tone: 'amber', value: pick(a.id, 'assigned'), filter: (r: MpLive) => r.out_state === 'ASSIGNED' && r.out_area_id === a.id },
+    { key: `out:${a.id}`, label: `On ${a.name}`, tone: a.out_purpose === 'LUNCH' ? 'violet' : 'blue', value: pick(a.id, 'out'), filter: (r: MpLive) => r.out_state === 'OUT' && r.out_area_id === a.id },
+  ]);
+  return [...HEAD, ...work, ...out, ...TAIL];
+}
 
 export default function DashboardPage() {
   const { profile } = useAuth();
@@ -38,7 +46,6 @@ export default function DashboardPage() {
   const [search, setSearch] = useState('');
   const [fStatus, setFStatus] = useState('');
   const [fArea, setFArea] = useState('');
-  const [fKind, setFKind] = useState('');
   const [fSup, setFSup] = useState('');
   const [fRoute, setFRoute] = useState('');
   const [fHo, setFHo] = useState('');
@@ -58,18 +65,18 @@ export default function DashboardPage() {
     return all.filter((r) => {
       if (hideDemo && r.is_demo) return false;
       if (shift && r.shift_id !== shift) return false;
-      if (!showOff && !kpiFilter && !fStatus && ['NOT_CHECKED_IN', 'SHIFT_ENDED'].includes(r.status)) return false;
+      if (r.status === 'SHIFT_ENDED') return false;   // shift over -> not on the live dashboard
+      if (!showOff && !kpiFilter && !fStatus && r.status === 'NOT_CHECKED_IN') return false;
       if (kpiFilter?.filter && !kpiFilter.filter(r)) return false;
       if (fStatus && r.status !== fStatus) return false;
-      if (fArea && r.area_id !== fArea) return false;
-      if (fKind && r.area_kind !== fKind) return false;
+      if (fArea && r.area_id !== fArea && r.out_area_id !== fArea) return false;
       if (fSup && r.supervisor_user_id !== fSup) return false;
       if (fHo && r.handover_status !== fHo) return false;
       if (fRoute && !(r.route_ref ?? '').toLowerCase().includes(fRoute.toLowerCase())) return false;
       if (s && !`${r.employee_code} ${r.full_name} ${r.area_name ?? ''} ${r.route_ref ?? ''} ${r.current_task ?? ''}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [live.data, search, fStatus, fArea, fKind, fSup, fRoute, fHo, kpiFilter, showOff, hideDemo, shift]);
+  }, [live.data, search, fStatus, fArea, fSup, fRoute, fHo, kpiFilter, showOff, hideDemo, shift]);
 
   const columns: Column<MpLive>[] = [
     { key: 'code', header: 'Emp ID', render: (r) => <span className="mono">{r.employee_code}{r.is_demo ? <span className="demo-tag">DEMO</span> : null}</span>, sortValue: (r) => r.employee_code },
@@ -120,15 +127,15 @@ export default function DashboardPage() {
 
   const k = live.data?.kpis;
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-  const clearFilters = () => { setSearch(''); setFStatus(''); setFArea(''); setFKind(''); setFSup(''); setFRoute(''); setFHo(''); setKpiFilter(null); };
+  const clearFilters = () => { setSearch(''); setFStatus(''); setFArea(''); setFSup(''); setFRoute(''); setFHo(''); setKpiFilter(null); };
 
   return (
     <div className="page" onClick={() => menu && setMenu(null)}>
       <section className="kpis" aria-label="Live counts">
-        {KPI_DEFS.map((d) => (
-          <button key={d.key} className={`kpi kpi-${d.tone} ${kpiFilter?.key === d.key ? 'active' : ''} ${(d.key === 'handover_overdue' || d.key === 'exceptions') && k && k[d.key] > 0 ? 'alarm' : ''}`}
+        {kpiDefs(k).map((d) => (
+          <button key={d.key} className={`kpi kpi-${d.tone} ${kpiFilter?.key === d.key ? 'active' : ''} ${d.alarm && k && d.value(k) > 0 ? 'alarm' : ''}`}
                   onClick={() => setKpiFilter(kpiFilter?.key === d.key ? null : d)} title="Filter the table">
-            <span className="kpi-value">{k ? k[d.key] : '–'}</span>
+            <span className="kpi-value">{k ? d.value(k) : '–'}</span>
             <span className="kpi-label">{d.label}</span>
           </button>
         ))}
@@ -138,12 +145,11 @@ export default function DashboardPage() {
         <input type="search" placeholder="Search name, ID, area, route…" value={search} onChange={(e) => setSearch(e.target.value)} className="search" />
         <select value={shift} onChange={(e) => setShift(e.target.value)} aria-label="Shift"><option value="">All shifts</option>{ref.shifts.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
         <select value={fSup} onChange={(e) => setFSup(e.target.value)} aria-label="Supervisor"><option value="">All supervisors</option>{ref.supervisors.map((s) => <option key={s.user_id} value={s.user_id}>{s.full_name}</option>)}</select>
-        <select value={fArea} onChange={(e) => setFArea(e.target.value)} aria-label="Block"><option value="">All areas / blocks</option>{ref.areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
-        <select value={fKind} onChange={(e) => setFKind(e.target.value)} aria-label="Work area"><option value="">All work types</option>{['PRIMARY', 'SECONDARY', 'STAGING', 'DOCK', 'BLOCK', 'OTHER'].map((x) => <option key={x}>{x}</option>)}</select>
-        <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} aria-label="Status"><option value="">All statuses</option>{(Object.keys(STATUS_META) as MpStatus[]).map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}</select>
+        <select value={fArea} onChange={(e) => setFArea(e.target.value)} aria-label="Block"><option value="">All areas / blocks</option>{ref.activeAreas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+        <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} aria-label="Status"><option value="">All statuses</option>{(Object.keys(STATUS_META) as MpStatus[]).filter((x) => x !== 'SHIFT_ENDED').map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}</select>
         <select value={fHo} onChange={(e) => setFHo(e.target.value)} aria-label="Handover status"><option value="">Any handover</option>{Object.keys(HANDOVER_META).map((s) => <option key={s}>{s}</option>)}</select>
         <input placeholder="Route / ref" value={fRoute} onChange={(e) => setFRoute(e.target.value)} className="narrow" />
-        <label className="check"><input type="checkbox" checked={showOff} onChange={(e) => setShowOff(e.target.checked)} /> Show off-shift</label>
+        <label className="check"><input type="checkbox" checked={showOff} onChange={(e) => setShowOff(e.target.checked)} /> Show not checked-in</label>
         <label className="check"><input type="checkbox" checked={hideDemo} onChange={(e) => setHideDemo(e.target.checked)} /> Hide demo</label>
         <Button size="sm" variant="ghost" onClick={clearFilters}>Clear</Button>
         <span className="spacer" />
