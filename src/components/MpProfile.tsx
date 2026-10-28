@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { get } from '../lib/api';
+import { useEffect, useState } from 'react';
+import { get, imageUrl } from '../lib/api';
 import { useLiveQuery, useNow } from '../hooks/useLive';
 import type { MpLive, Alert, GateLogRow, HandoverLive } from '../lib/types';
 import { fmtDateTime, fmtDuration, fmtTime, secondsSince, statusLabel, STATUS_META, HANDOVER_META, humanizeKey } from '../lib/format';
@@ -16,7 +16,7 @@ interface Profile {
   alerts: Alert[];
 }
 
-const TABS = ['Timeline', 'Gate', 'Assignments', 'Handovers', 'Breaks & pickups', 'Exceptions'] as const;
+const TABS = ['Timeline', 'Gate', 'Assignments', 'Handovers', 'Breaks & pickups', 'Alerts'] as const;
 
 export function MpProfileDrawer({ employeeId, onClose, actions }: { employeeId: string; onClose: () => void; actions?: React.ReactNode }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>('Timeline');
@@ -28,12 +28,23 @@ export function MpProfileDrawer({ employeeId, onClose, actions }: { employeeId: 
 
   const p = q.data;
   const l = p?.live;
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [big, setBig] = useState(false);
+  useEffect(() => {   // registered face photo of the MP
+    let alive = true; let u: string | null = null;
+    setPhoto(null);
+    void imageUrl(`face/photo/${employeeId}`).then((x) => { u = x; if (alive) setPhoto(x); else if (x) URL.revokeObjectURL(x); });
+    return () => { alive = false; if (u) URL.revokeObjectURL(u); };
+  }, [employeeId]);
 
   return (
     <div className="drawer-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <aside className="drawer" aria-label="MP profile">
         <header className="drawer-head">
-          <div>
+          <button className="mp-photo" onClick={() => photo && setBig(true)} title={photo ? 'Photo bada dekhiye' : 'Photo nahi hai'}>
+            {photo ? <img src={photo} alt="" /> : <span>No photo</span>}
+          </button>
+          <div className="drawer-title">
             <div className="eyebrow">{l?.employee_code}{l?.is_demo ? ' · DEMO' : ''}</div>
             <h2>{l?.full_name ?? '…'}</h2>
             {l && <div className="row gap">
@@ -44,6 +55,7 @@ export function MpProfileDrawer({ employeeId, onClose, actions }: { employeeId: 
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
         </header>
+        {big && photo && <div className="photo-pop" onClick={() => setBig(false)}><img src={photo} alt={l?.full_name ?? ''} /><span>{l?.full_name} · {l?.employee_code}</span></div>}
         <ErrorBox error={q.error} />
         {!p ? <Loading /> : (
           <>
@@ -99,7 +111,7 @@ export function MpProfileDrawer({ employeeId, onClose, actions }: { employeeId: 
                 <table className="table compact"><thead><tr><th>Purpose</th><th>Route</th><th>Destination</th><th>Out</th><th>Back</th><th>Expected</th><th>Status</th></tr></thead>
                   <tbody>{p.pickups.map((x) => <tr key={x.id}><td>{x.purpose}</td><td>{x.route_ref ?? '—'}</td><td>{x.destination ?? '—'}</td><td>{fmtTime(x.departed_at)}</td><td>{fmtTime(x.returned_at)}</td><td>{fmtTime(x.expected_return_at)}</td><td>{x.status}</td></tr>)}</tbody></table>
               </>}
-              {tab === 'Exceptions' && <ul className="alert-list">{p.alerts.map((a) => (
+              {tab === 'Alerts' && <ul className="alert-list">{p.alerts.map((a) => (
                 <li key={a.id} className={`sev-${a.severity.toLowerCase()}`}><strong>{a.title}</strong><span className="muted"> · {fmtDateTime(a.first_detected_at)} · {a.status}</span>{a.message ? <div className="small">{a.message}</div> : null}</li>))}
                 {p.alerts.length === 0 && <li className="muted">No exceptions in this window.</li>}</ul>}
             </div>

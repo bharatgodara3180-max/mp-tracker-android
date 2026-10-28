@@ -141,6 +141,32 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
     } finally { URL.revokeObjectURL(url); }
   };
 
+  // Paste a photo (Ctrl+V anywhere in this window, or the "Paste photo" button) — copied from WhatsApp / gallery / web
+  const fromFileRef = useRef(fromFile);
+  fromFileRef.current = fromFile;
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
+      const f = item?.getAsFile();
+      if (f) { e.preventDefault(); setCapturing(false); void fromFileRef.current(f); }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []);
+  const pasteButton = async () => {
+    setErr(null);
+    try {
+      const items = await navigator.clipboard.read();
+      for (const it of items) {
+        const type = it.types.find((t) => t.startsWith('image/'));
+        if (type) { setCapturing(false); await fromFile(new File([await it.getType(type)], 'pasted', { type })); return; }
+      }
+      setErr('Clipboard mein photo nahi hai — pehle photo Copy kariye');
+    } catch {
+      setErr('Paste ki permission nahi mili — photo copy karke yahan Ctrl+V dabaiye (phone pe neeche box mein long-press → Paste)');
+    }
+  };
+
   const save = async () => {
     const r = await run(() => post('face/enroll', { employee_id: row.id, descriptors: samples, photo, consent }), `${row.full_name} enrolled`);
     if (r) onSaved();
@@ -163,7 +189,12 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
         </div>
       </>}
       <ErrorBox error={err} />
-      <label className="small muted">Or upload a clear front photo (less accurate): <input type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) void fromFile(f); }} /></label>
+      <div className="paste-row">
+        <Button variant="primary" onClick={() => void pasteButton()}>Paste photo</Button>
+        <div className="paste-box" contentEditable suppressContentEditableWarning onInput={(e) => { (e.target as HTMLElement).innerHTML = ''; }}>
+          Photo copy karke yahan paste kariye (Ctrl+V / long-press → Paste)</div>
+      </div>
+      <label className="small muted">Ya file se: <input type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) void fromFile(f); }} /></label>
       {photo && <div className="row gap"><img className="face-thumb" src={photo} alt="" /><span className="small muted">{samples.length} sample(s) ready</span></div>}
       <label className="check"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> MP ne apna chehra gate attendance ke liye register karne ki sahmati di hai (consent recorded)</label>
     </Modal>

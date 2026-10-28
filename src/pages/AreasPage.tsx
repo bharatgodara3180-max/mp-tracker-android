@@ -3,7 +3,7 @@ import { get } from '../lib/api';
 import { useLiveQuery, useNow, useConnection } from '../hooks/useLive';
 import { useRefData } from '../hooks/useRefData';
 import type { Kpis, MpLive } from '../lib/types';
-import { delaySeconds, fmtDuration, fmtTime, secondsSince, STATUS_META } from '../lib/format';
+import { fmtDuration, fmtTime, secondsSince, STATUS_META } from '../lib/format';
 import { ErrorBox, Loading, Button } from '../components/ui';
 import { MpProfileDrawer } from '../components/MpProfile';
 
@@ -32,7 +32,7 @@ export default function AreasPage() {
   const panels = useMemo<Panel[]>(() => {
     const rows = (live.data?.rows ?? []).filter((r) => !hideDemo || !r.is_demo);
     const byArea = new Map<string, MpLive[]>();
-    rows.filter((r) => r.status === 'WORKING' && r.area_id).forEach((r) => byArea.set(r.area_id!, [...(byArea.get(r.area_id!) ?? []), r]));
+    rows.filter((r) => r.status === 'WORKING' && r.area_id && r.out_state !== 'ASSIGNED').forEach((r) => byArea.set(r.area_id!, [...(byArea.get(r.area_id!) ?? []), r]));
     const areaPanels: Panel[] = ref.areas
       .filter((a) => !a.out_purpose && (a.is_active || byArea.has(a.id)))
       .map((a) => ({ key: a.id, title: a.name, capacity: null, tone: 'green', members: byArea.get(a.id) ?? [] }));
@@ -45,7 +45,7 @@ export default function AreasPage() {
       ...areaPanels,
       ...outPanels,
       { key: 'handover', title: 'Handover', capacity: null, tone: 'orange', members: rows.filter((r) => r.status.startsWith('HANDOVER')) },
-      { key: 'unassigned', title: 'Unassigned', capacity: null, tone: 'amber', members: rows.filter((r) => r.status === 'INSIDE_UNASSIGNED') },
+      { key: 'unassigned', title: 'Unassigned', capacity: null, tone: 'amber', members: rows.filter((r) => r.status === 'INSIDE_UNASSIGNED' && r.out_state !== 'ASSIGNED') },
     ];
   }, [live.data, ref.areas, hideDemo]);
 
@@ -67,10 +67,9 @@ export default function AreasPage() {
       {live.loading && !live.data ? <Loading /> : (
         <div className="area-grid">
           {panels.map((p) => {
-            const exceptions = p.members.filter((m) => m.open_alerts > 0 || delaySeconds(m.expected_by, now) > 0 || m.status === 'OUTSIDE_UNDECLARED');
             const pct = p.capacity ? Math.min(100, (p.members.length / p.capacity) * 100) : null;
             return (
-              <section key={p.key} className={`area-panel tone-border-${p.tone} ${exceptions.length ? 'has-ex' : ''}`}>
+              <section key={p.key} className={`area-panel tone-border-${p.tone}`}>
                 <header>
                   <h3>{p.title}</h3>
                   <span className="area-count">{p.members.length}{p.capacity ? <small>/{p.capacity}</small> : null}</span>
@@ -78,17 +77,15 @@ export default function AreasPage() {
                 {pct !== null && <div className="cap-bar" title={`${Math.round(pct)}% of capacity`}><span style={{ width: `${pct}%` }} className={pct >= 100 ? 'full' : pct < 50 ? 'low' : ''} /></div>}
                 <div className="area-sub">
                   {p.members.filter((m) => m.current_task).length > 0 && <span>{new Set(p.members.map((m) => m.current_task).filter(Boolean)).size} active tasks</span>}
-                  {exceptions.length > 0 && <span className="delay">{exceptions.length} exception{exceptions.length > 1 ? 's' : ''}</span>}
                 </div>
                 <ul className="chips">
-                  {[...p.members].sort((a, b) => delaySeconds(b.expected_by, now) - delaySeconds(a.expected_by, now)).map((m) => {
-                    const d = delaySeconds(m.expected_by, now);
+                  {[...p.members].sort((a, b) => a.status_since.localeCompare(b.status_since)).map((m) => {
                     return (
-                      <li key={m.employee_id} className={`chip tone-${STATUS_META[m.status].tone} ${d > 0 || m.open_alerts ? 'chip-alert' : ''}`} onClick={() => setOpen(m.employee_id)}
+                      <li key={m.employee_id} className={`chip tone-${STATUS_META[m.status].tone}`} onClick={() => setOpen(m.employee_id)}
                           title={`${m.full_name} · ${STATUS_META[m.status].label}${m.route_ref ? ' · ' + m.route_ref : ''}`}>
                         <span className="chip-name">{m.full_name}</span>
                         <span className="chip-meta">{p.key.length > 20 ? (m.current_task ?? '') : STATUS_META[m.status].short}{m.route_ref ? ` · ${m.route_ref}` : ''}</span>
-                        <span className="chip-time mono">{d > 0 ? `+${fmtDuration(d)}` : fmtDuration(secondsSince(m.status_since, now))}</span>
+                        <span className="chip-time mono">{fmtDuration(secondsSince(m.status_since, now))}</span>
                       </li>);
                   })}
                   {!p.members.length && <li className="muted small">—</li>}

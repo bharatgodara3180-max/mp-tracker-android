@@ -26,10 +26,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const off = onUnauthorized(() => { token.set(null); setProfile(null); });
     if (!token.get()) { setLoading(false); return () => { off(); }; }
-    get<MeResponse>('auth/me').then((u) => setProfile(toProfile(u)))
-      .catch((e) => { if (e?.status !== 401) setError(e.message); token.set(null); })
-      .finally(() => setLoading(false));
-    return () => { off(); };
+    let alive = true;
+    const load = async () => {
+      for (let i = 0; alive; i++) {
+        try { const u = await get<MeResponse>('auth/me'); if (alive) setProfile(toProfile(u)); break; }
+        catch (e) {
+          // only a real "sign in again" clears the login; server busy / network = keep it and retry
+          if ((e as { code?: string })?.code === 'UNAUTHENTICATED' || (e as { status?: number })?.status === 403) { token.set(null); break; }
+          if (i >= 4) { setError((e as Error).message); break; }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+      if (alive) setLoading(false);
+    };
+    void load();
+    const stop = () => { alive = false; };
+    return () => { stop(); off(); };
   }, []);
 
   const signIn = async (username: string, password: string) => {

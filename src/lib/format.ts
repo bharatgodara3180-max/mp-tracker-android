@@ -20,7 +20,9 @@ export const STATUS_META: Record<MpStatus, { label: string; short: string; tone:
   SHIFT_ENDED:          { label: 'Shift ended',               short: 'Ended',       tone: 'gray' },
 };
 
-export function statusLabel(row: Pick<MpLive, 'status' | 'handover_type'>): string {
+export function statusLabel(row: Pick<MpLive, 'status' | 'handover_type'> & Partial<Pick<MpLive, 'out_state' | 'out_area_name'>>): string {
+  if (row.out_state === 'ASSIGNED' && row.status !== 'WORKING') return `Assigned for ${row.out_area_name ?? 'OUT'}`;
+  if (row.out_state === 'OUT') return `On ${row.out_area_name ?? 'OUT'}`;
   if (row.status === 'HANDOVER_PENDING' && row.handover_type === 'PICKUP_RETURN') return 'Returned · Handover pending';
   return STATUS_META[row.status]?.label ?? row.status;
 }

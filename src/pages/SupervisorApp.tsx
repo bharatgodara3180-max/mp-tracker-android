@@ -55,7 +55,13 @@ export default function SupervisorApp() {
   const lastPending = useRef(0);
   useEffect(() => { if (pending > lastPending.current) playSound(false); lastPending.current = pending; }, [pending]);
 
-  const pickArea = (id: string) => { setArea(id); try { localStorage.setItem(areaKey, id); } catch { /* ignore */ } };
+  // choosing a work area opens Deploy with Manual type ready
+  const pickArea = (id: string) => {
+    setAction('deploy');
+    try { localStorage.setItem(areaKey, id); localStorage.setItem('mp-scan-mode', 'manual'); } catch { /* ignore */ }
+    setArea(id);
+  };
+  const changeArea = () => { setSheet(null); try { localStorage.removeItem(areaKey); } catch { /* ignore */ } setArea(''); };
   const logout = () => { try { localStorage.removeItem(areaKey); } catch { /* ignore */ } signOut(); };
 
   if (ref.loading && !ref.workAreas.length) return <div className="center-screen"><Loading /></div>;
@@ -79,9 +85,10 @@ export default function SupervisorApp() {
   return (
     <div className="kiosk sup-app">
       <header className="sup-top">
-        <button className="icon-btn small" onClick={logout} title="Logout (area badalne ke liye bhi)">{Icon.logout}</button>
-        <div className="sup-area"><span className="muted small">Work area</span><strong>{areaRow.name}</strong></div>
+        <button className="sup-area" onClick={changeArea} title="Work area badlein (logout nahi hoga)">
+          <span className="muted small">Work area · badlein ▾</span><strong>{areaRow.name}</strong></button>
         <span className="pill tone-green">{count} done</span>
+        <button className="icon-btn small" onClick={() => { if (confirm('Logout karna hai?')) logout(); }} title="Logout">{Icon.logout}</button>
       </header>
       <div className="sup-icons">
         <button className="round-btn" onClick={() => setSheet('deployment')} title="Current deployment">{Icon.deployment}<span>Deploy list</span></button>

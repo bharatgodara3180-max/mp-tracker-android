@@ -20,8 +20,7 @@ const HEAD: KpiDef[] = [
 const TAIL: KpiDef[] = [
   { key: 'handover_pending', label: 'Handover pending', tone: 'orange', value: (k) => k.handover_pending, filter: (r) => r.status === 'HANDOVER_PENDING' || r.status === 'HANDOVER_IN_PROGRESS' },
   { key: 'handover_overdue', label: 'Handover overdue', tone: 'red', alarm: true, value: (k) => k.handover_overdue, filter: (r) => (r.status === 'HANDOVER_PENDING' || r.status === 'HANDOVER_IN_PROGRESS') && !!r.handover_due_at && Date.now() > new Date(r.handover_due_at).getTime() },
-  { key: 'unassigned', label: 'Unassigned', tone: 'amber', value: (k) => k.unassigned, filter: (r) => r.status === 'INSIDE_UNASSIGNED' },
-  { key: 'exceptions', label: 'Exceptions', tone: 'red', alarm: true, value: (k) => k.exceptions, filter: (r) => ON(r) && (r.open_alerts > 0 || delaySeconds(r.expected_by) > 0 || ['OUTSIDE_UNDECLARED', 'HANDOVER_DISPUTED'].includes(r.status)) },
+  { key: 'unassigned', label: 'Unassigned', tone: 'amber', value: (k) => k.unassigned, filter: (r) => r.status === 'INSIDE_UNASSIGNED' && r.out_state !== 'ASSIGNED' },
 ];
 
 /** Cards follow Admin -> Areas: one per work area, and two per OUT option ("Assigned for X" -> "On X"). */
@@ -29,7 +28,7 @@ function kpiDefs(k: Kpis | undefined): KpiDef[] {
   const areas = k?.areas ?? [];
   const pick = (id: string, f: 'working' | 'assigned' | 'out') => (kk: Kpis) => kk.areas?.find((a) => a.id === id)?.[f] ?? 0;
   const work: KpiDef[] = areas.filter((a) => !a.out_purpose).map((a) => ({ key: `area:${a.id}`, label: a.name, tone: 'green',
-    value: pick(a.id, 'working'), filter: (r) => r.status === 'WORKING' && r.area_id === a.id }));
+    value: pick(a.id, 'working'), filter: (r) => r.status === 'WORKING' && r.area_id === a.id && r.out_state !== 'ASSIGNED' }));
   const out: KpiDef[] = areas.filter((a) => a.out_purpose).flatMap((a) => [
     { key: `asg:${a.id}`, label: `Assigned for ${a.name}`, tone: 'amber', value: pick(a.id, 'assigned'), filter: (r: MpLive) => r.out_state === 'ASSIGNED' && r.out_area_id === a.id },
     { key: `out:${a.id}`, label: `On ${a.name}`, tone: a.out_purpose === 'LUNCH' ? 'violet' : 'blue', value: pick(a.id, 'out'), filter: (r: MpLive) => r.out_state === 'OUT' && r.out_area_id === a.id },
@@ -81,7 +80,7 @@ export default function DashboardPage() {
   const columns: Column<MpLive>[] = [
     { key: 'code', header: 'Emp ID', render: (r) => <span className="mono">{r.employee_code}{r.is_demo ? <span className="demo-tag">DEMO</span> : null}</span>, sortValue: (r) => r.employee_code },
     { key: 'name', header: 'MP name', render: (r) => <strong>{r.full_name}</strong>, sortValue: (r) => r.full_name, width: 140 },
-    { key: 'status', header: 'Current status', render: (r) => <Pill tone={STATUS_META[r.status].tone}>{statusLabel(r)}</Pill>, sortValue: (r) => r.status, width: 170 },
+    { key: 'status', header: 'Current status', render: (r) => <Pill tone={r.out_state ? (r.out_state === 'OUT' ? 'blue' : 'amber') : STATUS_META[r.status].tone}>{statusLabel(r)}</Pill>, sortValue: (r) => r.status, width: 170 },
     { key: 'presence', header: 'In/Out', render: (r) => <span className={`presence p-${r.presence.toLowerCase()}`}>{r.presence === 'UNKNOWN' ? '—' : r.presence}</span>, sortValue: (r) => r.presence },
     { key: 'area', header: 'Area / block', render: (r) => r.area_name ?? '—', sortValue: (r) => r.area_name },
     { key: 'task', header: 'Task', render: (r) => r.current_task ?? '—', sortValue: (r) => r.current_task },
@@ -161,7 +160,7 @@ export default function DashboardPage() {
       <ErrorBox error={live.error} />
       {live.loading && !live.data ? <Loading /> : (
         <DataTable rows={rows} columns={columns} rowKey={(r) => r.employee_id} onRowClick={(r) => setOpen(r.employee_id)}
-          rowClass={(r) => (delaySeconds(r.expected_by, now) > 0 || r.open_alerts > 0 || r.status === 'OUTSIDE_UNDECLARED' ? 'row-alert' : '')}
+          rowClass={(r) => (r.status === 'OUTSIDE_UNDECLARED' ? 'row-alert' : '')}
           empty={live.data?.rows.length ? 'No MPs match these filters.' : 'No MPs yet. Add employees in Admin → Employees (or load demo data).'} />
       )}
 

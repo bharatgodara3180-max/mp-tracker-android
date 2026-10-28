@@ -49,12 +49,14 @@ export async function request<T>(method: string, path: string, body?: unknown, o
     if ((e as Error).name === 'AbortError') throw e;
     throw new ApiError('Network unavailable — cannot reach the server', 'NETWORK', 0);
   }
-  if (res.status === 401 && path !== 'auth/login') {
-    unauthorizedListeners.forEach((l) => l());
-  }
   const text = await res.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+  // Sign out only when OUR server says the login is no longer valid. A 401 from a proxy in between
+  // (public link password, ngrok) or a network blip must not throw the user out of the app.
+  if (res.status === 401 && path !== 'auth/login' && (data?.detail?.code ?? data?.code) === 'UNAUTHENTICATED') {
+    unauthorizedListeners.forEach((l) => l());
+  }
   if (!res.ok) {
     const d = data?.detail ?? data ?? {};
     throw new ApiError(typeof d === 'string' ? d : d.message ?? d.error ?? `Request failed (${res.status})`, d.code, res.status);
