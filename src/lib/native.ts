@@ -5,6 +5,8 @@
 export type AppMode = 'gate' | 'supervisor';
 const SERVER_KEY = 'mp-app-server';
 const MODE_KEY = 'mp-app-mode';
+/** Fixed DC server: a fresh install opens straight to the login (change it under "App setup" if ever needed). */
+export const DEFAULT_SERVER = 'http://10.10.39.55:8010/';
 
 export function isNativeApp(): boolean {
   const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
@@ -15,8 +17,8 @@ const get = (k: string) => { try { return localStorage.getItem(k); } catch { ret
 const set = (k: string, v: string | null) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* ignore */ } };
 
 /** Server base like "http://192.168.1.20:8010/" or "https://x.ngrok-free.dev/MP/" (always ends with "/"). */
-export const appServer = () => (isNativeApp() ? get(SERVER_KEY) : null);
-export const appMode = () => (isNativeApp() ? (get(MODE_KEY) as AppMode | null) : null);
+export const appServer = () => (isNativeApp() ? get(SERVER_KEY) ?? DEFAULT_SERVER : null);
+export const appMode = () => (isNativeApp() ? (get(MODE_KEY) as AppMode | null) ?? 'supervisor' : null);
 export function saveAppSetup(server: string | null, mode: AppMode | null) { set(SERVER_KEY, server); set(MODE_KEY, mode); }
 
 export function normalizeServer(input: string): string | null {
