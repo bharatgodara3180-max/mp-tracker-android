@@ -3,7 +3,7 @@
  * camera + recognition loop, full-screen result, sounds, camera help.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { BlinkDetector, FACE_QUALITY, SAMPLES_NEEDED, analyse, distance, loadFaceEngine, mean, snapshot, startCamera, stopCamera } from '../lib/face';
+import { BlinkDetector, FACE_QUALITY, KIOSK_FACE, SAMPLES_NEEDED, analyse, distance, focusOn, loadFaceEngine, mean, readiness, snapshot, startCamera, stopCamera, track, type Tracked } from '../lib/face';
 import { Button } from './ui';
 
 export interface KioskResult { label: string; sub?: string; tone: 'green' | 'blue' | 'red' | 'amber'; alarm?: boolean }
@@ -25,18 +25,28 @@ export function playSound(alarm: boolean) {
 
 /* ---------- camera + recognition loop ---------- */
 type Phase = 'loading' | 'scanning' | 'busy' | 'result' | 'error';
+/** What the page tells the loop after a scan: not matched -> short popup and a quick retry. */
+export interface CaptureOutcome { matched: boolean; holdMs?: number }
+
+const NOT_MATCHED_MS = 800;      // "face match nahi hua" popup
+const SETTLE_MS = 450;           // pause before the next face (camera start / after a result)
+const SEND_TIMEOUT_MS = 15000;   // a slow network never freezes the camera loop
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const frame = () => new Promise<void>((r) => { if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => r()); else setTimeout(r, 16); });
 
 /**
- * Finds one good face, takes 3 consistent samples, calls onCapture(descriptor, snapshot).
- * After onCapture resolves it waits (result on screen) until the person leaves (min 2.5 s, max 8 s), then onReset().
+ * Finds the face anywhere in the picture (box follows it), waits until it is at the right distance, fully in the
+ * picture, looking straight and steady, then recognises it (2 consistent samples) and calls onCapture.
  */
 export function useFaceCapture(opts: {
   enabled: boolean; facing: 'user' | 'environment'; requireBlink: boolean;
-  onCapture: (descriptor: number[], snap: string | null) => Promise<void>; onReset: () => void;
+  onCapture: (descriptor: number[], snap: string | null) => Promise<void | CaptureOutcome>; onReset: () => void;
   /** Fixed result time (ms) instead of "until the person walks away"; the same face is then not re-scanned for sameFaceGapMs. */
   resultMs?: number; sameFaceGapMs?: number;
 }) {
   const video = useRef<HTMLVideoElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>('loading');
   const [hint, setHint] = useState('Starting camera…');
   const [progress, setProgress] = useState(0);
@@ -48,17 +58,46 @@ export function useFaceCapture(opts: {
     let stream: MediaStream | null = null;
     let alive = true;
     let wake: { release(): Promise<void> } | null = null;
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const mirror = opts.facing === 'user';
+
+    const drawBox = (t: Tracked | null, tone: 'idle' | 'ok' | 'bad') => {
+      const el = boxRef.current; const v = video.current;
+      if (!el || !v) return;
+      if (!t) { el.style.opacity = '0'; return; }
+      const cw = v.clientWidth; const ch = v.clientHeight;
+      const sc = Math.max(cw / t.vw, ch / t.vh);              // video is object-fit: cover
+      const ox = (cw - t.vw * sc) / 2; const oy = (ch - t.vh * sc) / 2;
+      const pad = t.box.width * 0.12;
+      const w = (t.box.width + pad * 2) * sc; const h = (t.box.height + pad * 2) * sc;
+      let x = (t.box.x - pad) * sc + ox; const y = (t.box.y - pad * 1.4) * sc + oy;
+      if (mirror) x = cw - x - w;
+      el.style.opacity = '1';
+      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+      el.style.width = `${Math.round(w)}px`; el.style.height = `${Math.round(h)}px`;
+      el.dataset.tone = tone;
+    };
+
+    const openCamera = async () => {
+      if (!video.current) throw new Error('no video');
+      stopCamera(stream);
+      stream = await startCamera(video.current, opts.facing);
+      try {   // continuous auto-focus where the phone supports it
+        const tr = stream.getVideoTracks()[0];
+        const caps = (tr.getCapabilities?.() ?? {}) as Record<string, unknown>;
+        if (Array.isArray(caps.focusMode) && (caps.focusMode as string[]).includes('continuous'))
+          await tr.applyConstraints({ advanced: [{ focusMode: 'continuous' }] } as unknown as MediaTrackConstraints);
+      } catch { /* optional */ }
+    };
+
     (async () => {
       try {
         setPhase('loading'); setHint('Loading face models…');
         if (!video.current) return;
-        // camera and models start together (models are usually already loading since the page opened)
-        const [, s] = await Promise.all([loadFaceEngine(), startCamera(video.current, opts.facing)]);
-        stream = s;
+        await Promise.all([loadFaceEngine(), openCamera()]);
         if (!alive) { stopCamera(stream); return; }
         try { wake = await (navigator as unknown as { wakeLock?: { request(t: string): Promise<{ release(): Promise<void> }> } }).wakeLock?.request('screen') ?? null; } catch { /* optional */ }
-        setPhase('scanning');
+        setPhase('scanning'); setHint('Camera ke saamne aaiye');
+        await sleep(SETTLE_MS);
       } catch (e) {
         if (!alive) return;
         setPhase('error');
@@ -70,64 +109,105 @@ export function useFaceCapture(opts: {
       const blink = new BlinkDetector();
       let samples: { d: Float32Array; at: number }[] = [];
       let snap: string | null = null;
-      let lastFace: { d: number[]; at: number } | null = null;
+      let lastFace: { d: number[]; at: number } | null = null;     // last recognised (same face not repeated)
+      let lastMiss: { d: number[]; at: number } | null = null;     // last "not matched"
+      let prev: { x: number; y: number } | null = null;
+      let steady = 0; let errors = 0; let focusAt = 0;
+      let lastTime = -1; let frozenSince = Date.now();
+
       while (alive) {
         const v = video.current;
-        if (!v) { await sleep(150); continue; }
-        const fr = await analyse(v, true);
-        let msg = '';
-        if (fr.count === 0) msg = 'Camera ke saamne aaiye';
-        else if (fr.count > 1) msg = 'Ek baar mein ek vyakti';
-        else if (fr.sizeRatio < FACE_QUALITY.minSize) msg = 'Thoda paas aaiye';
-        else if (!fr.centered) msg = 'Chehra beech mein rakhiye';
-        else if (fr.score < FACE_QUALITY.minScore) msg = 'Seedha camera ki taraf dekhiye';
-        if (fr.count === 0) { blink.reset(); samples = []; } else blink.push(fr.ear);
-        const good = !msg;
-        if (good && ref.current.requireBlink && !blink.done) msg = 'Aankh jhapkaiye (blink)';
-        if (good && fr.descriptor) {
-          const now = Date.now();
-          samples = samples.filter((s) => now - s.at < 6000);   // slow tablets need ~1 s per sample
-          if (samples.length && distance(samples[0].d, fr.descriptor) > FACE_QUALITY.consistent) samples = [];
-          samples.push({ d: fr.descriptor, at: now });
-          if (samples.length === 1) snap = snapshot(v);
-          setProgress(Math.min(samples.length, SAMPLES_NEEDED));
-          if (samples.length >= SAMPLES_NEEDED && (!ref.current.requireBlink || blink.done)) {
-            const d = mean(samples.map((s) => s.d));
-            const shot = snap ?? snapshot(v);
-            samples = []; snap = null; blink.reset(); setProgress(0);
-            const gap = ref.current.sameFaceGapMs ?? 0;
-            if (gap && lastFace && Date.now() - lastFace.at < gap && distance(lastFace.d, d) < FACE_QUALITY.consistent) {
-              setHint('Ho gaya — agla MP aaye'); await sleep(400); continue;   // same person still in front: don't repeat
-            }
-            lastFace = { d, at: Date.now() };
-            setPhase('busy');
-            try { await ref.current.onCapture(d, shot); } catch { /* page shows its own error */ }
-            if (!alive) return;
-            setPhase('result');
-            const fixed = ref.current.resultMs;
-            if (fixed) { await sleep(fixed); if (!alive) return; lastFace = { d, at: Date.now() }; }
-            // otherwise keep the result up until the person moves away (min 2.5 s, max 8 s)
-            const shownAt = Date.now(); let lastSeen = Date.now();
-            while (alive && !fixed) {
-              const f2 = await analyse(v, false);
-              if (f2.count) lastSeen = Date.now();
-              const shown = Date.now() - shownAt;
-              if ((shown > 2500 && Date.now() - lastSeen > 1000) || shown > 8000) break;
-              await sleep(120);
-            }
-            ref.current.onReset();
-            setPhase('scanning');
-            continue;
+        if (!v || document.hidden) { await sleep(300); continue; }
+        // camera watchdog: picture stopped moving for 4 s -> reopen the camera
+        if (v.currentTime !== lastTime) { lastTime = v.currentTime; frozenSince = Date.now(); }
+        else if (Date.now() - frozenSince > 4000) {
+          setHint('Camera restart ho raha hai…'); drawBox(null, 'idle');
+          try { await openCamera(); } catch { await sleep(1500); }
+          frozenSince = Date.now(); continue;
+        }
+        let t: Tracked | null = null;
+        try { t = await track(v); errors = 0; }
+        catch { errors++; await sleep(errors > 5 ? 1000 : 150); continue; }   // one bad frame never stops the loop
+        if (!alive) break;
+
+        let msg = readiness(t);
+        const placed = !msg;          // right distance / pose -> green box (even while waiting to be steady)
+        if (!t) { blink.reset(); samples = []; } else blink.push(t.ear);
+        if (!msg && t) {
+          const c = { x: (t.box.x + t.box.width / 2) / t.vw, y: (t.box.y + t.box.height / 2) / t.vh };
+          steady = prev && Math.hypot(c.x - prev.x, c.y - prev.y) < KIOSK_FACE.steady ? steady + 1 : 0;
+          prev = c;
+          if (steady < 2) msg = 'Ruk ke seedha dekhiye';
+          else if (ref.current.requireBlink && !blink.done) msg = 'Aankh jhapkaiye (blink)';
+        } else { steady = 0; prev = null; }
+        drawBox(t, placed ? 'ok' : t ? 'bad' : 'idle');
+
+        if (msg) {
+          samples = []; snap = null; setProgress(0); setHint(msg);
+          await frame(); continue;
+        }
+        if (t && Date.now() - focusAt > 1500) { focusAt = Date.now(); focusOn(stream, t, mirror); }
+
+        // ready: recognise (heavier network, only now)
+        let fr;
+        try { fr = await analyse(v, true); } catch { await sleep(150); continue; }
+        if (!alive) break;
+        if (fr.count < 1 || !fr.descriptor) { samples = []; await frame(); continue; }
+        const now = Date.now();
+        samples = samples.filter((x) => now - x.at < 3000);
+        if (samples.length && distance(samples[0].d, fr.descriptor) > FACE_QUALITY.consistent) samples = [];
+        samples.push({ d: fr.descriptor, at: now });
+        if (samples.length === 1) snap = snapshot(v);
+        setProgress(Math.min(samples.length, SAMPLES_NEEDED));
+        setHint('Pehchaan ho rahi hai…');
+        if (samples.length < SAMPLES_NEEDED) continue;
+
+        const d = mean(samples.map((x) => x.d));
+        const shot = snap ?? snapshot(v);
+        samples = []; snap = null; blink.reset(); setProgress(0);
+        if (lastMiss && now - lastMiss.at < 1500 && distance(lastMiss.d, d) < FACE_QUALITY.consistent) {
+          setHint('Match nahi hua — seedha aur paas dekhiye'); await sleep(250); continue;   // don't spam the same unknown face
+        }
+        const gap = ref.current.sameFaceGapMs ?? 0;
+        if (gap && lastFace && now - lastFace.at < gap && distance(lastFace.d, d) < FACE_QUALITY.consistent) {
+          setHint('Ho gaya — agla MP aaye'); await sleep(400); continue;   // same person still in front: don't repeat
+        }
+
+        setPhase('busy');
+        let out: void | CaptureOutcome = undefined;
+        try {
+          out = await Promise.race([ref.current.onCapture(d, shot),
+            sleep(SEND_TIMEOUT_MS).then(() => { throw new Error('timeout'); })]);
+        } catch { /* the page shows its own error */ }
+        if (!alive) return;
+        setPhase('result'); drawBox(null, 'idle');
+        const matched = !out || out.matched;
+        if (matched) lastFace = { d, at: Date.now() }; else lastMiss = { d, at: Date.now() };
+        const hold = out?.holdMs ?? (matched ? ref.current.resultMs : NOT_MATCHED_MS);
+        if (hold) { await sleep(hold); }
+        else {   // gate: keep the result until the person moves away (min 1.5 s, max 6 s)
+          const shownAt = Date.now(); let lastSeen = Date.now();
+          while (alive) {
+            let seen = false;
+            try { seen = !!(await track(v)); } catch { /* ignore */ }
+            if (seen) lastSeen = Date.now();
+            const shown = Date.now() - shownAt;
+            if ((shown > 1500 && Date.now() - lastSeen > 700) || shown > 6000) break;
+            await sleep(120);
           }
-        } else if (!good) setProgress(0);
-        setHint(msg || 'Hold still…');
-        await sleep(15);
+        }
+        if (!alive) return;
+        if (matched) lastFace = { d, at: Date.now() };
+        ref.current.onReset();
+        setPhase('scanning'); setHint('Agla MP');
+        steady = 0; prev = null;
+        await sleep(SETTLE_MS);
       }
     })();
     return () => { alive = false; stopCamera(stream); void wake?.release().catch(() => {}); };
   }, [opts.enabled, opts.facing]);
 
-  return { video, phase, hint, progress };
+  return { video, boxRef, phase, hint, progress };
 }
 
 /* ---------- views ---------- */
@@ -135,7 +215,7 @@ export function CameraStage({ cam, mirror, children }: { cam: ReturnType<typeof 
   return (
     <div className="face-stage">
       <video ref={cam.video} className={`face-video ${mirror ? 'mirror' : ''}`} playsInline muted />
-      <div className={`face-guide ${cam.progress ? 'locking' : ''}`} />
+      <div ref={cam.boxRef} className="face-box" data-tone="idle" />
       {cam.phase !== 'result' && <div className="face-hint">
         {cam.phase === 'busy' ? 'Checking…' : cam.hint}
         {cam.phase === 'scanning' && cam.progress > 0 && <div className="face-progress"><i style={{ width: `${(cam.progress / SAMPLES_NEEDED) * 100}%` }} /></div>}

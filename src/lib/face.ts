@@ -155,5 +155,69 @@ export class BlinkDetector {
 }
 
 export const FACE_QUALITY = { minScore: 0.5, minSize: 0.16, consistent: 0.45 };
+
+/* ---------- live tracking (kiosks): find the face anywhere, check distance/pose, then recognise ---------- */
+export interface Box { x: number; y: number; width: number; height: number }
+export interface Tracked {
+  box: Box; score: number; vw: number; vh: number;
+  others: number;                  // other faces of similar size (a second person close by)
+  yaw: number; roll: number;       // rough head turn (0 = straight) and tilt in degrees
+  ear: number | null;
+}
+
+/** Fast pass for every frame: detector + landmarks only (no recognition network). */
+export async function track(video: HTMLVideoElement): Promise<Tracked | null> {
+  const f = await loadFaceEngine();
+  const vw = video.videoWidth; const vh = video.videoHeight;
+  if (!vw || !vh || video.readyState < 2) return null;
+  const all = await f.detectAllFaces(video, new f.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 })).withFaceLandmarks();
+  if (!all.length) return null;
+  const main = all.reduce((a, b) => (b.detection.box.width > a.detection.box.width ? b : a));
+  const b = main.detection.box;
+  const pts = main.landmarks.positions;
+  const avg = (i: number, n: number) => { let x = 0, y = 0; for (let k = i; k < i + n; k++) { x += pts[k].x; y += pts[k].y; } return { x: x / n, y: y / n }; };
+  const eyeA = avg(36, 6); const eyeB = avg(42, 6);
+  const mid = { x: (eyeA.x + eyeB.x) / 2, y: (eyeA.y + eyeB.y) / 2 };
+  const ed = Math.max(1, Math.hypot(eyeB.x - eyeA.x, eyeB.y - eyeA.y));
+  return {
+    box: { x: b.x, y: b.y, width: b.width, height: b.height }, score: main.detection.score, vw, vh,
+    others: all.filter((o) => o !== main && o.detection.box.width > b.width * 0.6).length,
+    yaw: (pts[30].x - mid.x) / ed,
+    roll: (Math.atan2(eyeB.y - eyeA.y, eyeB.x - eyeA.x) * 180) / Math.PI,
+    ear: eyeAspectRatio(pts),
+  };
+}
+
+/** Kiosk rules for "the face is ready to be recognised"; returns the hint to show, or '' when ready. */
+export const KIOSK_FACE = { minSize: 0.2, maxSize: 0.78, minScore: 0.5, maxYaw: 0.3, maxRoll: 18, edge: 0.02, steady: 0.035 };
+export function readiness(t: Tracked | null): string {
+  if (!t) return 'Camera ke saamne aaiye';
+  if (t.others) return 'Ek baar mein ek vyakti';
+  const r = t.box.width / t.vw;
+  if (r < KIOSK_FACE.minSize) return 'Thoda paas aaiye';
+  if (r > KIOSK_FACE.maxSize) return 'Thoda peeche hatiye';
+  const e = KIOSK_FACE.edge;
+  if (t.box.x < t.vw * e || t.box.y < t.vh * e || t.box.x + t.box.width > t.vw * (1 - e) || t.box.y + t.box.height > t.vh * (1 - e))
+    return 'Pura chehra camera mein laaiye';
+  if (Math.abs(t.yaw) > KIOSK_FACE.maxYaw) return 'Seedha camera ki taraf dekhiye';
+  if (Math.abs(t.roll) > KIOSK_FACE.maxRoll) return 'Sar seedha rakhiye';
+  if (t.score < KIOSK_FACE.minScore) return 'Roshni mein seedha dekhiye';
+  return '';
+}
+
+/** Best effort: point the camera's focus / exposure at the face (Android Chrome supports it on many phones). */
+export function focusOn(stream: MediaStream | null, t: Tracked, mirror: boolean) {
+  const track = stream?.getVideoTracks()[0];
+  if (!track?.applyConstraints) return;
+  let x = (t.box.x + t.box.width / 2) / t.vw;
+  const y = (t.box.y + t.box.height / 2) / t.vh;
+  if (mirror) x = Math.min(1, Math.max(0, x));
+  const caps = (track.getCapabilities?.() ?? {}) as Record<string, unknown>;
+  const adv: Record<string, unknown>[] = [];
+  if ('pointsOfInterest' in caps) adv.push({ pointsOfInterest: [{ x, y }] });
+  if (Array.isArray(caps.focusMode) && (caps.focusMode as string[]).includes('continuous')) adv.push({ focusMode: 'continuous' });
+  if (Array.isArray(caps.exposureMode) && (caps.exposureMode as string[]).includes('continuous')) adv.push({ exposureMode: 'continuous' });
+  if (adv.length) void track.applyConstraints({ advanced: adv } as MediaTrackConstraints).catch(() => {});
+}
 /** Consistent samples averaged per scan (2 = fast, still steady). */
 export const SAMPLES_NEEDED = 2;

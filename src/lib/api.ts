@@ -43,11 +43,16 @@ export async function request<T>(method: string, path: string, body?: unknown, o
   if (isNativeApp()) headers['ngrok-skip-browser-warning'] = '1';   // ngrok free links show a warning page otherwise
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res: Response;
+  // writes get a time limit so a stuck connection never freezes a screen (long-poll GETs pass their own signal)
+  const ctl = !opts.signal && method !== 'GET' ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), path.startsWith('face/') ? 15000 : 45000) : null;
   try {
-    res = await fetch(url.toString(), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: opts.signal });
+    res = await fetch(url.toString(), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: opts.signal ?? ctl?.signal });
   } catch (e) {
-    if ((e as Error).name === 'AbortError') throw e;
-    throw new ApiError('Network unavailable — cannot reach the server', 'NETWORK', 0);
+    if ((e as Error).name === 'AbortError' && !ctl?.signal.aborted) throw e;
+    throw new ApiError(ctl?.signal.aborted ? 'Server ne time pe jawab nahi diya — dobara try kariye' : 'Network unavailable — cannot reach the server', 'NETWORK', 0);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
   const text = await res.text();
   let data: any = null;

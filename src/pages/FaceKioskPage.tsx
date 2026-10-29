@@ -11,7 +11,7 @@ import { cameraProblem, loadFaceEngine } from '../lib/face';
 import { Button } from '../components/ui';
 import { InstallAppButton } from '../components/InstallApp';
 import { isNativeApp } from '../lib/native';
-import { CameraHelp, CameraStage, CameraSwitch, FullResult, playSound, useFaceCapture, type KioskResult } from '../components/FaceKiosk';
+import { CameraHelp, CameraStage, CameraSwitch, FullResult, playSound, useFaceCapture, type CaptureOutcome, type KioskResult } from '../components/FaceKiosk';
 
 const DEVICE_KEY = 'mp-face-device';
 const FACING_KEY = 'mp-face-facing';
@@ -100,7 +100,7 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
     note: error,
   });
 
-  const onCapture = useCallback(async (descriptor: number[], snap: string | null) => {
+  const onCapture = useCallback(async (descriptor: number[], snap: string | null): Promise<CaptureOutcome | void> => {
     const scan: FaceScan = { clientEventId: uuid(), capturedAt: new Date().toISOString(), descriptor, snapshot: snap };
     if (store.all().length) await flush();             // older offline scans go first (order matters for the rules)
     if (store.all().length) {
@@ -116,6 +116,7 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
       const e = r.reply.employee;
       const photo = e?.has_photo ? await imageUrl(`face/photo/${e.id}`) : null;
       setView({ result: res, name: e?.name, code: e?.code, photo, note: r.reply.matched ? undefined : r.reply.reason ?? undefined, repeat: r.reply.repeat });
+      return { matched: !!r.reply.matched };
     } else if (r.retry) {
       store.save([...store.all(), { ...scan, attempts: r.network ? 0 : 1, lastError: r.error }]); setPending(store.all().length);
       setSyncError(r.error);

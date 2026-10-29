@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, get, imageUrl } from '../lib/api';
 import { cameraProblem, loadFaceEngine, startCamera, stopCamera } from '../lib/face';
 import { Button } from './ui';
-import { CameraStage, FullResult, playSound, useFaceCapture, type KioskResult } from './FaceKiosk';
+import { CameraStage, FullResult, playSound, useFaceCapture, type CaptureOutcome, type KioskResult } from './FaceKiosk';
 
 export type ScanId = { scan_value?: string; descriptor?: number[] };
 export interface ScanReply { matched?: boolean; reason?: string; repeat?: boolean; result: KioskResult; employee?: { id: string; code: string; name: string; has_photo?: boolean } | null }
@@ -52,26 +52,32 @@ export function ScanPanel({ submit, active, buttonLabel, onResult }: {
     if (autoClear) clearTimer.current = window.setTimeout(() => setView(null), v.result.alarm ? 4000 : 2500);
   };
 
-  const send = useCallback(async (id: ScanId, autoClear: boolean) => {
-    if (busyRef.current) return;
+  const send = useCallback(async (id: ScanId, autoClear: boolean): Promise<ScanReply | null> => {
+    if (busyRef.current) return null;
     busyRef.current = true; setBusy(true);
     try {
-      const r = await submitRef.current(id);
+      const r = await Promise.race([submitRef.current(id),     // never hang on a slow network
+        new Promise<never>((_, rej) => setTimeout(() => rej(new ApiError('Server slow hai — dobara scan kariye', 'NETWORK', 0)), 15000))]);
       playSound(!!r.result.alarm);
       onResultRef.current?.(r);
       const photo = r.employee?.has_photo ? await imageUrl(`face/photo/${r.employee.id}`) : null;
       showView({ result: r.result, name: r.employee?.name, code: r.employee?.code, photo, repeat: r.repeat }, autoClear);
+      return r;
     } catch (e) {
       playSound(true);
       const net = !(e instanceof ApiError) || e.code === 'NETWORK' || [502, 503, 504].includes(e.status ?? 0);
       showView({ result: { label: net ? 'NETWORK NAHI' : 'ERROR', sub: e instanceof Error ? e.message : String(e), tone: 'red', alarm: true } }, autoClear);
+      return null;
     } finally {
       busyRef.current = false; setBusy(false);
     }
   }, []);
 
   /* Face scan: result 2 s, then the next MP; the same face is not repeated for 10 s */
-  const onFace = useCallback(async (descriptor: number[]) => { await send({ descriptor }, false); }, [send]);
+  const onFace = useCallback(async (descriptor: number[]): Promise<CaptureOutcome> => {
+    const r = await send({ descriptor }, false);
+    return { matched: !!r?.employee };      // not recognised -> short popup, quick retry
+  }, [send]);
   const onFaceReset = useCallback(() => setView((v) => { if (v?.photo) URL.revokeObjectURL(v.photo); return null; }), []);
   const faceCam = useFaceCapture({ enabled: active && mode === 'face' && !camBlocked, facing, requireBlink, onCapture: onFace, onReset: onFaceReset,
     resultMs: 2000, sameFaceGapMs: 10000 });

@@ -465,3 +465,9 @@ button.pill { cursor: pointer; border: 0; }
 .wf-steps li { line-height: 1.5; }
 .wf-script { display: block; width: 100%; height: 70px; margin-top: 6px; font-size: 11px; background: var(--bg-2); color: var(--text-2); border: 1px solid var(--line); border-radius: 8px; }
 .wf-results { max-height: 280px; overflow: auto; }
+
+/* face tracking box (follows the face anywhere in the picture) */
+.face-box { position: absolute; left: 0; top: 0; width: 0; height: 0; opacity: 0; pointer-events: none; border-radius: 18px;
+  border: 3px solid rgba(255,255,255,.85); box-shadow: 0 0 0 2000px rgba(0,0,0,.18); transition: transform .08s linear, width .08s linear, height .08s linear, opacity .15s, border-color .15s; }
+.face-box[data-tone="ok"] { border-color: var(--green); border-width: 4px; }
+.face-box[data-tone="bad"] { border-color: var(--amber); }
