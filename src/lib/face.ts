@@ -54,7 +54,7 @@ export function cameraProblem(): string | null {
 
 export async function startCamera(video: HTMLVideoElement, facing: 'user' | 'environment'): Promise<MediaStream> {
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: false, video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false, video: { facingMode: facing, width: { ideal: 960 }, height: { ideal: 540 } },
   });
   video.srcObject = stream;
   video.muted = true;
@@ -165,16 +165,16 @@ export interface Tracked {
   ear: number | null;
 }
 
-let far = false;
+let far = 0;
 /** Fast pass for every frame: detector + landmarks only (no recognition network). */
 export async function track(video: HTMLVideoElement): Promise<Tracked | null> {
   const f = await loadFaceEngine();
   const vw = video.videoWidth; const vh = video.videoHeight;
   if (!vw || !vh || video.readyState < 2) return null;
   // near faces: quick 288 pass; nothing found -> every other frame a finer 448 pass, so far faces are found too
-  far = !far;
+  far = (far + 1) % 4;
   let all = await f.detectAllFaces(video, new f.TinyFaceDetectorOptions({ inputSize: 288, scoreThreshold: 0.45 })).withFaceLandmarks();
-  if (!all.length && far) all = await f.detectAllFaces(video, new f.TinyFaceDetectorOptions({ inputSize: 448, scoreThreshold: 0.45 })).withFaceLandmarks();
+  if (!all.length && far === 0) all = await f.detectAllFaces(video, new f.TinyFaceDetectorOptions({ inputSize: 448, scoreThreshold: 0.45 })).withFaceLandmarks();
   if (!all.length) return null;
   const main = all.reduce((a, b) => (b.detection.box.width > a.detection.box.width ? b : a));
   const b = main.detection.box;

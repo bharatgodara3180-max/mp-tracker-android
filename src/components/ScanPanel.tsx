@@ -73,14 +73,14 @@ export function ScanPanel({ submit, active, buttonLabel, onResult }: {
     }
   }, []);
 
-  /* Face scan: result 2 s, then the next MP; the same face is not repeated for 10 s */
+  /* Face scan: result 1 s, then the next MP (the same MP again shows the server's "already" answer) */
   const onFace = useCallback(async (descriptor: number[]): Promise<CaptureOutcome> => {
     const r = await send({ descriptor }, false);
     return { matched: !!r?.employee };      // not recognised -> short popup, quick retry
   }, [send]);
   const onFaceReset = useCallback(() => setView((v) => { if (v?.photo) URL.revokeObjectURL(v.photo); return null; }), []);
   const faceCam = useFaceCapture({ enabled: active && mode === 'face' && !camBlocked, facing, requireBlink, onCapture: onFace, onReset: onFaceReset,
-    resultMs: 2000, sameFaceGapMs: 10000 });
+    resultMs: 1000 });
 
   /* QR / barcode scan */
   useEffect(() => {

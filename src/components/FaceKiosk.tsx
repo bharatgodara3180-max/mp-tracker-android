@@ -28,7 +28,8 @@ type Phase = 'loading' | 'scanning' | 'busy' | 'result' | 'error';
 /** What the page tells the loop after a scan: not matched -> short popup and a quick retry. */
 export interface CaptureOutcome { matched: boolean; holdMs?: number }
 
-const NOT_MATCHED_MS = 800;      // "face match nahi hua" popup
+const NOT_MATCHED_MS = 700;      // "face match nahi hua" popup
+const TRACK_GAP_MS = 60;         // breathing room between frames so buttons / scrolling stay smooth
 const SETTLE_MS = 450;           // pause before the next face (camera start / after a result)
 const SEND_TIMEOUT_MS = 15000;   // a slow network never freezes the camera loop
 
@@ -42,8 +43,8 @@ const frame = () => new Promise<void>((r) => { if (typeof requestAnimationFrame 
 export function useFaceCapture(opts: {
   enabled: boolean; facing: 'user' | 'environment'; requireBlink: boolean;
   onCapture: (descriptor: number[], snap: string | null) => Promise<void | CaptureOutcome>; onReset: () => void;
-  /** Fixed result time (ms) instead of "until the person walks away"; the same face is then not re-scanned for sameFaceGapMs. */
-  resultMs?: number; sameFaceGapMs?: number;
+  /** Fixed result time (ms) instead of "until the person walks away". */
+  resultMs?: number;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -58,7 +59,7 @@ export function useFaceCapture(opts: {
     let stream: MediaStream | null = null;
     let alive = true;
     let wake: { release(): Promise<void> } | null = null;
-    const mirror = opts.facing === 'user';
+    let facing = ref.current.facing;          // camera switch = new stream only, the loop keeps running
 
     const drawBox = (t: Tracked | null, tone: 'idle' | 'ok' | 'bad') => {
       const el = boxRef.current; const v = video.current;
@@ -70,7 +71,7 @@ export function useFaceCapture(opts: {
       const pad = t.box.width * 0.12;
       const w = (t.box.width + pad * 2) * sc; const h = (t.box.height + pad * 2) * sc;
       let x = (t.box.x - pad) * sc + ox; const y = (t.box.y - pad * 1.4) * sc + oy;
-      if (mirror) x = cw - x - w;
+      if (facing === 'user') x = cw - x - w;
       el.style.opacity = '1';
       el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
       el.style.width = `${Math.round(w)}px`; el.style.height = `${Math.round(h)}px`;
@@ -79,8 +80,9 @@ export function useFaceCapture(opts: {
 
     const openCamera = async () => {
       if (!video.current) throw new Error('no video');
-      stopCamera(stream);
-      stream = await startCamera(video.current, opts.facing);
+      stopCamera(stream); stream = null;
+      facing = ref.current.facing;
+      stream = await startCamera(video.current, facing);
       try {   // continuous auto-focus where the phone supports it
         const tr = stream.getVideoTracks()[0];
         const caps = (tr.getCapabilities?.() ?? {}) as Record<string, unknown>;
@@ -109,7 +111,6 @@ export function useFaceCapture(opts: {
       const blink = new BlinkDetector();
       let samples: { d: Float32Array; at: number }[] = [];
       let snap: string | null = null;
-      let lastFace: { d: number[]; at: number } | null = null;     // last recognised (same face not repeated)
       let lastMiss: { d: number[]; at: number } | null = null;     // last "not matched"
       let prev: { x: number; y: number } | null = null;
       let steady = 0; let errors = 0; let focusAt = 0;
@@ -118,6 +119,11 @@ export function useFaceCapture(opts: {
       while (alive) {
         const v = video.current;
         if (!v || document.hidden) { await sleep(300); continue; }
+        if (ref.current.facing !== facing) {          // camera switched
+          drawBox(null, 'idle'); samples = []; steady = 0; prev = null; setHint('Camera badal raha hai…');
+          try { await openCamera(); } catch { await sleep(800); }
+          frozenSince = Date.now(); continue;
+        }
         // camera watchdog: picture stopped moving for 4 s -> reopen the camera
         if (v.currentTime !== lastTime) { lastTime = v.currentTime; frozenSince = Date.now(); }
         else if (Date.now() - frozenSince > 4000) {
@@ -128,6 +134,7 @@ export function useFaceCapture(opts: {
         let t: Tracked | null = null;
         try { t = await track(v); errors = 0; }
         catch { errors++; await sleep(errors > 5 ? 1000 : 150); continue; }   // one bad frame never stops the loop
+        await sleep(t ? TRACK_GAP_MS : TRACK_GAP_MS * 2);
         if (!alive) break;
 
         let msg = readiness(t);
@@ -147,7 +154,7 @@ export function useFaceCapture(opts: {
           samples = []; snap = null; setProgress(0); setHint(msg);
           await frame(); continue;
         }
-        if (t && Date.now() - focusAt > 1500) { focusAt = Date.now(); focusOn(stream, t, mirror); }
+        if (t && Date.now() - focusAt > 1500) { focusAt = Date.now(); focusOn(stream, t, facing === 'user'); }
 
         // ready: recognise (heavier network, only now)
         let desc: Float32Array | null = null;
@@ -169,10 +176,6 @@ export function useFaceCapture(opts: {
         if (lastMiss && now - lastMiss.at < 1500 && distance(lastMiss.d, d) < FACE_QUALITY.consistent) {
           setHint('Match nahi hua — seedha aur paas dekhiye'); await sleep(250); continue;   // don't spam the same unknown face
         }
-        const gap = ref.current.sameFaceGapMs ?? 0;
-        if (gap && lastFace && now - lastFace.at < gap && distance(lastFace.d, d) < FACE_QUALITY.consistent) {
-          setHint('Ho gaya — agla MP aaye'); await sleep(400); continue;   // same person still in front: don't repeat
-        }
 
         setPhase('busy');
         let out: void | CaptureOutcome = undefined;
@@ -183,7 +186,7 @@ export function useFaceCapture(opts: {
         if (!alive) return;
         setPhase('result'); drawBox(null, 'idle');
         const matched = !out || out.matched;
-        if (matched) lastFace = { d, at: Date.now() }; else lastMiss = { d, at: Date.now() };
+        if (!matched) lastMiss = { d, at: Date.now() };
         const hold = out?.holdMs ?? (matched ? ref.current.resultMs : NOT_MATCHED_MS);
         if (hold) { await sleep(hold); }
         else {   // gate: keep the result until the person moves away (min 1.5 s, max 6 s)
@@ -198,7 +201,6 @@ export function useFaceCapture(opts: {
           }
         }
         if (!alive) return;
-        if (matched) lastFace = { d, at: Date.now() };
         ref.current.onReset();
         setPhase('scanning'); setHint('Agla MP');
         steady = 0; prev = null;
@@ -206,7 +208,7 @@ export function useFaceCapture(opts: {
       }
     })();
     return () => { alive = false; stopCamera(stream); void wake?.release().catch(() => {}); };
-  }, [opts.enabled, opts.facing]);
+  }, [opts.enabled]);
 
   return { video, boxRef, phase, hint, progress };
 }

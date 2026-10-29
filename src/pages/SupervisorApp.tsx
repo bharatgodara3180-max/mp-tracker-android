@@ -46,7 +46,9 @@ export default function SupervisorApp() {
   const outChoice = outChoices.find((c) => c.key === outPick) ?? outChoices[0];
   const purpose = outChoice?.purpose ?? 'LUNCH';
   const [route, setRoute] = useState('');
-  const [count, setCount] = useState(0);
+  // how many MPs are in my area right now (Pickup-type area: assigned for / on pickup)
+  const areaLive = useLiveQuery<{ rows: MpLive[] }>(() => (area ? get('live') : Promise.resolve({ rows: [] })),
+    ['mp_current_state', 'work_assignments', 'pickup_assignments'], [area], { pollMs: 20000 });
   const areaRow = pickAreas.find((a) => a.id === area);
   const isPickupArea = areaRow?.out_purpose === 'PICKUP';
 
@@ -87,7 +89,10 @@ export default function SupervisorApp() {
       <header className="sup-top">
         <button className="sup-area" onClick={changeArea} title="Work area badlein (logout nahi hoga)">
           <span className="muted small">Work area · badlein ▾</span><strong>{areaRow.name}</strong></button>
-        <span className="pill tone-green">{count} done</span>
+        <span className="pill tone-green sup-count" title={`${areaRow.name} mein abhi`}>
+          <b>{(areaLive.data?.rows ?? []).filter((r) => (isPickupArea
+            ? r.out_area_id === area && !!r.out_state
+            : r.status === 'WORKING' && r.area_id === area && r.out_state !== 'ASSIGNED')).length}</b> deployed</span>
         <button className="icon-btn small" onClick={() => { if (confirm('Logout karna hai?')) logout(); }} title="Logout">{Icon.logout}</button>
       </header>
       <div className="sup-icons">
@@ -107,7 +112,7 @@ export default function SupervisorApp() {
         {purpose === 'PICKUP' && <input className="route-input" value={route} onChange={(e) => setRoute(e.target.value)} placeholder="Route / ref (optional)" />}
       </div>}
       <ScanPanel active={sheet === null} buttonLabel={action === 'deploy' ? 'Deploy' : 'OUT assign'} submit={submit}
-                 onResult={(r) => { if (['DEPLOYED', 'OUT ASSIGNED'].includes(r.result.label) && !r.repeat) setCount((c) => c + 1); }} />
+                 onResult={(r) => { if (!r.result.alarm) void areaLive.refresh(); }} />
       <p className="muted small kiosk-foot">{action === 'deploy'
         ? (isPickupArea ? `Scan kiye MP ${areaRow.name} ke liye assign honge ("Assigned for ${areaRow.name}"), gate se OUT hote hi "On ${areaRow.name}".`
           : `Scan kiye MP ${areaRow.name} mein deploy honge. Doosre area wale MP ke liye pehle wahan se handover chahiye.`)

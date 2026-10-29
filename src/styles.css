@@ -471,3 +471,22 @@ button.pill { cursor: pointer; border: 0; }
   border: 3px solid rgba(255,255,255,.85); box-shadow: 0 0 0 2000px rgba(0,0,0,.18); transition: transform .08s linear, width .08s linear, height .08s linear, opacity .15s, border-color .15s; }
 .face-box[data-tone="ok"] { border-color: var(--green); border-width: 4px; }
 .face-box[data-tone="bad"] { border-color: var(--amber); }
+
+/* supervisor app: the camera fills the rest of the screen; icons sit beside the top controls only */
+.sup-app { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; padding-right: 18px; gap: 10px; }
+.sup-app > .sup-top, .sup-app > .action-switch, .sup-app > .out-purpose, .sup-app > .deploy-modes { margin-right: 84px; }
+.sup-app > .deploy-cam { flex: 1; min-height: 180px; }
+.sup-app > .deploy-cam .face-stage { height: 100%; max-height: none; aspect-ratio: auto; }
+.sup-app > .kiosk-foot { font-size: 12px; margin: 0; flex: none; }
+.sup-app > .sync-error { flex: none; }
+.sup-count b { font-size: 16px; }
+@media (max-width: 520px) { .sup-app { padding-right: 12px; padding-left: 12px; } .sup-app > .sup-top, .sup-app > .action-switch, .sup-app > .out-purpose, .sup-app > .deploy-modes { margin-right: 74px; } }
+
+.gate-people { position: absolute; top: 14px; right: 14px; z-index: 6; width: 56px; height: 56px; border-radius: 50%; border: 2px solid rgba(255,255,255,.7);
+  background: rgba(0,0,0,.45); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.gate-people:active { transform: scale(.95); }
+.gate-find { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 6px; max-height: 50vh; overflow: auto; }
+.gate-find li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.gate-notfound { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.gate-add { display: grid; gap: 10px; }
+.gate-add h4 { margin: 0; }
