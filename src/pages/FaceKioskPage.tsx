@@ -132,7 +132,7 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
 
   const onReset = useCallback(() => setView((v) => { if (v?.photo) URL.revokeObjectURL(v.photo); return null; }), []);
   const { profile } = useAuth();
-  const canEnrol = !fixedDevice && !!profile && ['gate_operator', 'admin', 'supervisor'].includes(profile.role);
+  const canEnrol = !fixedDevice && !!profile && ['gate_operator', 'admin', 'supervisor', 'ops_manager'].includes(profile.role);
   const [enrolOpen, setEnrolOpen] = useState(false);     // camera pauses while the enrol window uses it
   const cam = useFaceCapture({ enabled: started && !setup && !problem && !enrolOpen, facing, requireBlink: cfg.require_blink, onCapture, onReset });
   const flipCamera = () => { const f = facing === 'user' ? 'environment' : 'user'; setFacing(f); try { localStorage.setItem(FACING_KEY, f); } catch { /* ignore */ } };
@@ -173,7 +173,7 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
     <div className="gate-screen">
       <div className="gate-camera">
         <CameraStage cam={cam} mirror={facing === 'user'} />
-        {canEnrol && started && <GateEnrolButton onOpenChange={setEnrolOpen} />}
+        {started && (canEnrol || fixedDevice) && <GateEnrolButton onOpenChange={setEnrolOpen} staffLogin={!canEnrol} />}
         <div className="gate-chips">
           <span className={`conn conn-${online ? 'live' : 'offline'}`}>{online ? 'online' : 'OFFLINE'}</span>
           {pending > 0 && <button className="pill tone-amber" onClick={() => void flush()}>{pending} sync baaki · Sync now</button>}

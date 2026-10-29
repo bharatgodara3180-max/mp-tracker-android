@@ -3,15 +3,23 @@
  * A face that is already enrolled can only be changed by admin / supervisor (server rule).
  */
 import { useEffect, useState } from 'react';
-import { get, post } from '../lib/api';
+import { get, post, setStaffToken } from '../lib/api';
 import { EnrollModal } from '../pages/FaceEnrollPage';
 import { Button, Modal, useAction } from './ui';
 
 interface Found { id: string; employee_code: string; full_name: string; designation: string | null; badge_code: string | null; samples: number }
 
-export function GateEnrolButton({ onOpenChange, inline }: { onOpenChange?: (open: boolean) => void; inline?: boolean }) {
+export function GateEnrolButton({ onOpenChange, inline, staffLogin }: {
+  onOpenChange?: (open: boolean) => void; inline?: boolean;
+  /** gate tablet without a login (gate link): a staff member signs in first, only for this window */
+  staffLogin?: boolean;
+}) {
   const [open, setOpen] = useState(false);
-  const toggle = (v: boolean) => { setOpen(v); onOpenChange?.(v); };
+  const [signedIn, setSignedIn] = useState(false);
+  const toggle = (v: boolean) => {
+    setOpen(v); onOpenChange?.(v);
+    if (!v && staffLogin) { setStaffToken(null); setSignedIn(false); }
+  };
   return (
     <>
       <button className={inline ? 'people-btn' : 'gate-people'} onClick={() => toggle(true)} aria-label="Employee face enrol" title="Search employee / face enrol">
@@ -19,8 +27,39 @@ export function GateEnrolButton({ onOpenChange, inline }: { onOpenChange?: (open
           <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
         </svg>
       </button>
-      {open && <GateEnrolSheet onClose={() => toggle(false)} />}
+      {open && (staffLogin && !signedIn
+        ? <StaffLogin onClose={() => toggle(false)} onDone={() => setSignedIn(true)} />
+        : <GateEnrolSheet onClose={() => toggle(false)} />)}
     </>
+  );
+}
+
+const STAFF = ['admin', 'supervisor', 'gate_operator', 'ops_manager'];
+
+function StaffLogin({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [u, setU] = useState(''); const [p, setP] = useState('');
+  const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setErr(null); setBusy(true);
+    try {
+      const r = await post<{ token: string; user: { role: string; full_name: string } }>('auth/login', { username: u.trim(), password: p });
+      if (!STAFF.includes(r.user.role)) { setErr('Is login se face enrol nahi ho sakta'); return; }
+      setStaffToken(r.token); onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Modal title="Staff login — face enrol" onClose={onClose} footer={<>
+      <Button variant="ghost" onClick={onClose}>Cancel</Button>
+      <Button variant="primary" busy={busy} disabled={!u.trim() || !p} onClick={() => void go()}>Login</Button></>}>
+      <p className="muted small">Naya employee / face enrol karne ke liye gate operator, supervisor ya admin apna login daale. Window band hote hi login hat jayega.</p>
+      <form className="gate-add" onSubmit={(e) => { e.preventDefault(); void go(); }}>
+        <label className="field"><span className="field-label">Username</span><input autoFocus autoCapitalize="none" value={u} onChange={(e) => setU(e.target.value)} /></label>
+        <label className="field"><span className="field-label">Password</span><input type="password" value={p} onChange={(e) => setP(e.target.value)} /></label>
+        <button type="submit" hidden />
+      </form>
+      {err && <div className="error-box">{err}</div>}
+    </Modal>
   );
 }
 

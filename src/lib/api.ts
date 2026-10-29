@@ -27,7 +27,10 @@ export const token = {
 /** Gate tablet opened through its fixed link: it authenticates as the device, not as a user. */
 let kioskToken: string | null = null;
 export const setKioskToken = (t: string | null) => { kioskToken = t; };
-const authToken = () => kioskToken ?? token.get();
+/** A staff member who signs in on the gate tablet just to enrol a face (kept in memory, cleared when done). */
+let staffToken: string | null = null;
+export const setStaffToken = (t: string | null) => { staffToken = t; };
+const authToken = () => staffToken ?? kioskToken ?? token.get();
 
 type Listener = () => void;
 const unauthorizedListeners = new Set<Listener>();
