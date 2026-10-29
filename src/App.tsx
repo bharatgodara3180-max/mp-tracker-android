@@ -1,3 +1,4 @@
+import { GateEnrolButton } from './components/GateEnrol';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { HashRouter, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
@@ -121,6 +122,7 @@ function Header() {
           <span className="muted small"> · {conn.lastRefresh ? fmtTime(new Date(conn.lastRefresh).toISOString()) : '—'}</span>
         </span>
         {alertsOn && <button className={`icon-btn ${muted ? '' : 'on'}`} onClick={() => setMuted(!muted)} title={muted ? 'Sound alerts muted' : 'Sound alerts on'} aria-label={muted ? 'Unmute alerts' : 'Mute alerts'}>{muted ? '🔇' : '🔔'}</button>}
+        {profile && ['admin', 'ops_manager', 'supervisor'].includes(profile.role) && <GateEnrolButton inline />}
         <span className="who">{profile?.full_name}<span className="muted small"> · {profile?.role.replace('_', ' ')}</span></span>
         <Button size="sm" variant="ghost" onClick={() => signOut()}>Sign out</Button>
       </div>

@@ -15,6 +15,7 @@ import { Button, Loading, useToast } from '../components/ui';
 import { InstallAppButton } from '../components/InstallApp';
 import { playSound } from '../components/FaceKiosk';
 import { ScanPanel, type ScanId, type ScanReply } from '../components/ScanPanel';
+import { GateEnrolButton } from '../components/GateEnrol';
 
 interface Transfer { id: string; employee_id: string; employee_code: string; full_name: string; from_area: string; from_code: string;
   to_area: string; to_code: string; created_at: string; given_by: string | null; has_photo: boolean }
@@ -34,6 +35,7 @@ export default function SupervisorApp() {
   const areaKey = `mp-sup-area:${profile?.user_id ?? ''}`;
   const [area, setArea] = useState(() => localStorage.getItem(areaKey) ?? '');
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [enrolOpen, setEnrolOpen] = useState(false);     // the enrol window needs the camera
   const [action, setAction] = useState<'deploy' | 'out'>('deploy');
   const [outPick, setOutPick] = useState<string>('LUNCH');   // OUT option id (admin-made) or a plain purpose
   // OUT options come from Admin -> Areas (OUT type); without any, plain Pickup / Lunch / Other
@@ -93,6 +95,7 @@ export default function SupervisorApp() {
           <b>{(areaLive.data?.rows ?? []).filter((r) => (isPickupArea
             ? r.out_area_id === area && !!r.out_state
             : r.status === 'WORKING' && r.area_id === area && r.out_state !== 'ASSIGNED')).length}</b> deployed</span>
+        <GateEnrolButton inline onOpenChange={setEnrolOpen} />
         <button className="icon-btn small" onClick={() => { if (confirm('Logout karna hai?')) logout(); }} title="Logout">{Icon.logout}</button>
       </header>
       <div className="sup-icons">
@@ -111,7 +114,7 @@ export default function SupervisorApp() {
         {outChoices.map((c) => <button key={c.key} className={`tag ${outChoice?.key === c.key ? 'on' : ''}`} onClick={() => setOutPick(c.key)}>{c.label}</button>)}
         {purpose === 'PICKUP' && <input className="route-input" value={route} onChange={(e) => setRoute(e.target.value)} placeholder="Route / ref (optional)" />}
       </div>}
-      <ScanPanel active={sheet === null} buttonLabel={action === 'deploy' ? 'Deploy' : 'OUT assign'} submit={submit}
+      <ScanPanel active={sheet === null && !enrolOpen} buttonLabel={action === 'deploy' ? 'Deploy' : 'OUT assign'} submit={submit}
                  onResult={(r) => { if (!r.result.alarm) void areaLive.refresh(); }} />
       <p className="muted small kiosk-foot">{action === 'deploy'
         ? (isPickupArea ? `Scan kiye MP ${areaRow.name} ke liye assign honge ("Assigned for ${areaRow.name}"), gate se OUT hote hi "On ${areaRow.name}".`

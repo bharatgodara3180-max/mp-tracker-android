@@ -9,13 +9,13 @@ import { Button, Modal, useAction } from './ui';
 
 interface Found { id: string; employee_code: string; full_name: string; designation: string | null; badge_code: string | null; samples: number }
 
-export function GateEnrolButton({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
+export function GateEnrolButton({ onOpenChange, inline }: { onOpenChange?: (open: boolean) => void; inline?: boolean }) {
   const [open, setOpen] = useState(false);
-  const toggle = (v: boolean) => { setOpen(v); onOpenChange(v); };
+  const toggle = (v: boolean) => { setOpen(v); onOpenChange?.(v); };
   return (
     <>
-      <button className="gate-people" onClick={() => toggle(true)} aria-label="Employee face enrol" title="Search employee / face enrol">
-        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <button className={inline ? 'people-btn' : 'gate-people'} onClick={() => toggle(true)} aria-label="Employee face enrol" title="Search employee / face enrol">
+        <svg viewBox="0 0 24 24" width={inline ? 20 : 28} height={inline ? 20 : 28} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
         </svg>
       </button>
