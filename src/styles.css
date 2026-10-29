@@ -511,3 +511,30 @@ button.pill { cursor: pointer; border: 0; }
 .sup-top { gap: 6px; }
 .sup-top .people-btn { width: 34px; height: 34px; }
 .sup-top .sup-count { padding: 3px 8px; }
+
+/* modals fit phones: full screen, body scrolls, buttons always visible */
+.modal { max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); max-width: 100%; }
+.modal-body { min-height: 0; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.modal-body > * { max-width: 100%; }
+.modal-foot { flex-wrap: wrap; flex: none; }
+.modal-head { flex: none; }
+.modal-body input[type=file] { max-width: 100%; }
+@media (max-width: 640px) {
+  .modal-backdrop { padding: 0; place-items: stretch; }
+  .modal, .modal-wide { width: 100%; height: 100vh; height: 100dvh; max-height: none; border-radius: 0; border: 0; }
+  .modal-head h3 { font-size: 16px; }
+  .fid { width: min(78vw, 42vh); width: min(78vw, 42dvh); }
+  .paste-row { flex-direction: column; }
+  .paste-box { min-width: 0; }
+}
+
+/* wide tables scroll sideways on phones instead of being cut off */
+@media (max-width: 900px) {
+  .panel > .table, .panel .table.compact, .wf-results .table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; max-width: 100%; }
+  .panel { max-width: 100%; min-width: 0; }
+}
+.modal-backdrop { grid-template-columns: minmax(0, 1fr); }
+.modal { min-width: 0; }
+@media (max-width: 640px) { .modal-backdrop { grid-template-rows: minmax(0, 1fr); } .modal-body .row { flex-wrap: wrap; } }
+.modal-body .check { white-space: normal; align-items: flex-start; display: flex; font-size: 14px; }
+.modal-body .check input[type=checkbox] { flex: none; width: 22px; height: 22px; margin-top: 1px; }

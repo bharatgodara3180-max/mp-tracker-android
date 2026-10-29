@@ -104,7 +104,8 @@ function GateEnrolSheet({ onClose }: { onClose: () => void }) {
           {rows.map((r) => <li key={r.id}>
             <div><b>{r.full_name}</b><span className="muted small mono"> {r.employee_code}{r.designation ? ` · ${r.designation}` : ''}</span></div>
             {r.samples > 0
-              ? <span className="pill tone-green">Face enrolled</span>
+              ? <span className="row gap"><span className="pill tone-green">Enrolled</span>
+                  <Button size="sm" onClick={() => setEnrol({ id: r.id, employee_code: r.employee_code, full_name: r.full_name })}>Update face</Button></span>
               : <Button size="sm" variant="primary" onClick={() => setEnrol({ id: r.id, employee_code: r.employee_code, full_name: r.full_name })}>Face enrol</Button>}
           </li>)}
         </ul>}
