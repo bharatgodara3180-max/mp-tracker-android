@@ -116,8 +116,10 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
       const res: KioskResult = r.reply.result ?? { label: r.reply.matched ? `DC ${r.reply.direction}` : 'PEHCHAAN NAHI HUI', tone: r.reply.matched ? 'green' : 'red', alarm: !r.reply.matched };
       playSound(!!res.alarm);
       const e = r.reply.employee;
-      const photo = e?.has_photo ? await imageUrl(`face/photo/${e.id}`) : null;
-      setView({ result: res, name: e?.name, code: e?.code, photo, note: r.reply.matched ? undefined : r.reply.reason ?? undefined, repeat: r.reply.repeat });
+      setView({ result: res, name: e?.name, code: e?.code, photo: null, note: r.reply.matched ? undefined : r.reply.reason ?? undefined, repeat: r.reply.repeat });
+      if (e?.has_photo) void imageUrl(`face/photo/${e.id}`).then((photo) => {   // result shows at once; the photo follows
+        if (photo) setView((v) => (v && v.code === e.code ? { ...v, photo } : (URL.revokeObjectURL(photo), v)));
+      });
       return { matched: !!r.reply.matched };
     } else if (r.retry) {
       store.save([...store.all(), { ...scan, attempts: r.network ? 0 : 1, lastError: r.error }]); setPending(store.all().length);

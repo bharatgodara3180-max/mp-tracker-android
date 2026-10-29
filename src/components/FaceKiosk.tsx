@@ -3,7 +3,7 @@
  * camera + recognition loop, full-screen result, sounds, camera help.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { BlinkDetector, FACE_QUALITY, KIOSK_FACE, SAMPLES_NEEDED, describeAt, distance, focusOn, loadFaceEngine, mean, readiness, snapshot, startCamera, stopCamera, track, type Tracked } from '../lib/face';
+import { BlinkDetector, FACE_QUALITY, KIOSK_FACE, describeAt, distance, focusOn, loadFaceEngine, mean, readiness, snapshot, startCamera, stopCamera, track, type Tracked } from '../lib/face';
 import { Button } from './ui';
 
 export interface KioskResult { label: string; sub?: string; tone: 'green' | 'blue' | 'red' | 'amber'; alarm?: boolean }
@@ -32,6 +32,7 @@ const NOT_MATCHED_MS = 700;      // "face match nahi hua" popup
 const TRACK_GAP_MS = 60;         // breathing room between frames so buttons / scrolling stay smooth
 const SETTLE_MS = 450;           // pause before the next face (camera start / after a result)
 const SEND_TIMEOUT_MS = 15000;   // a slow network never freezes the camera loop
+const KIOSK_SAMPLES = 1;         // the face is cut out + enlarged and checked for pose first, so one sample is enough
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const frame = () => new Promise<void>((r) => { if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => r()); else setTimeout(r, 16); });
@@ -145,7 +146,7 @@ export function useFaceCapture(opts: {
           const c = { x: (t.box.x + t.box.width / 2) / t.box.width, y: (t.box.y + t.box.height / 2) / t.box.width };
           steady = prev && Math.hypot(c.x - prev.x, c.y - prev.y) < KIOSK_FACE.steady ? steady + 1 : 0;
           prev = c;
-          if (steady < 2) msg = 'Ruk ke seedha dekhiye';
+          if (steady < 1) msg = 'Ruk ke seedha dekhiye';
           else if (ref.current.requireBlink && !blink.done) msg = 'Aankh jhapkaiye (blink)';
         } else { steady = 0; prev = null; }
         drawBox(t, placed ? 'ok' : t ? 'bad' : 'idle');
@@ -165,13 +166,12 @@ export function useFaceCapture(opts: {
         samples = samples.filter((x) => now - x.at < 3000);
         if (samples.length && distance(samples[0].d, desc) > FACE_QUALITY.consistent) samples = [];
         samples.push({ d: desc, at: now });
-        if (samples.length === 1) snap = snapshot(v);
-        setProgress(Math.min(samples.length, SAMPLES_NEEDED));
-        setHint('Pehchaan ho rahi hai…');
-        if (samples.length < SAMPLES_NEEDED) continue;
+        if (samples.length === 1) snap = snapshot(v, 240, 0.6);    // small proof photo -> quick upload
+        setProgress(Math.min(samples.length, KIOSK_SAMPLES));
+        if (samples.length < KIOSK_SAMPLES) { setHint('Pehchaan ho rahi hai…'); continue; }
 
         const d = mean(samples.map((x) => x.d));
-        const shot = snap ?? snapshot(v);
+        const shot = snap ?? snapshot(v, 240, 0.6);
         samples = []; snap = null; blink.reset(); setProgress(0);
         if (lastMiss && now - lastMiss.at < 1500 && distance(lastMiss.d, d) < FACE_QUALITY.consistent) {
           setHint('Match nahi hua — seedha aur paas dekhiye'); await sleep(250); continue;   // don't spam the same unknown face
@@ -221,7 +221,7 @@ export function CameraStage({ cam, mirror, children }: { cam: ReturnType<typeof 
       <div ref={cam.boxRef} className="face-box" data-tone="idle" />
       {cam.phase !== 'result' && <div className="face-hint">
         {cam.phase === 'busy' ? 'Checking…' : cam.hint}
-        {cam.phase === 'scanning' && cam.progress > 0 && <div className="face-progress"><i style={{ width: `${(cam.progress / SAMPLES_NEEDED) * 100}%` }} /></div>}
+        {cam.phase === 'scanning' && cam.progress > 0 && <div className="face-progress"><i style={{ width: `${(cam.progress / KIOSK_SAMPLES) * 100}%` }} /></div>}
       </div>}
       {children}
     </div>

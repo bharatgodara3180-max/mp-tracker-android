@@ -60,8 +60,11 @@ export function ScanPanel({ submit, active, buttonLabel, onResult }: {
         new Promise<never>((_, rej) => setTimeout(() => rej(new ApiError('Server slow hai — dobara scan kariye', 'NETWORK', 0)), 15000))]);
       playSound(!!r.result.alarm);
       onResultRef.current?.(r);
-      const photo = r.employee?.has_photo ? await imageUrl(`face/photo/${r.employee.id}`) : null;
-      showView({ result: r.result, name: r.employee?.name, code: r.employee?.code, photo, repeat: r.repeat }, autoClear);
+      showView({ result: r.result, name: r.employee?.name, code: r.employee?.code, photo: null, repeat: r.repeat }, autoClear);
+      const emp = r.employee;
+      if (emp?.has_photo) void imageUrl(`face/photo/${emp.id}`).then((photo) => {   // result first, photo after
+        if (photo) setView((v) => (v && v.code === emp.code && !v.photo ? { ...v, photo } : (URL.revokeObjectURL(photo), v)));
+      });
       return r;
     } catch (e) {
       playSound(true);
