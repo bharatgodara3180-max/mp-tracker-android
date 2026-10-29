@@ -164,6 +164,7 @@ export interface Tracked {
   yaw: number; roll: number;       // rough head turn (0 = straight) and tilt in degrees
   pitch: number;                   // nose height between eyes and chin (~0.4 straight; smaller = looking up)
   ear: number | null;
+  pts: { x: number; y: number }[]; // 68 landmarks (video pixels)
 }
 
 let far = 0;
@@ -191,6 +192,7 @@ export async function track(video: HTMLVideoElement): Promise<Tracked | null> {
     pitch: (pts[30].y - mid.y) / Math.max(1, pts[8].y - mid.y),
     roll: (Math.atan2(eyeB.y - eyeA.y, eyeB.x - eyeA.x) * 180) / Math.PI,
     ear: eyeAspectRatio(pts),
+    pts: pts.map((q) => ({ x: q.x, y: q.y })),
   };
 }
 

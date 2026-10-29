@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { del, get, imageUrl, post } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
 import { analyse, cameraProblem, describeAt, distance, loadFaceEngine, snapshot, startCamera, stopCamera, track, type Tracked } from '../lib/face';
+import { MESH_IDX, delaunay, drawMesh } from '../lib/faceMesh';
 import { fmtDateTime } from '../lib/format';
 import { Button, ErrorBox, Loading, Modal, useAction } from '../components/ui';
 
@@ -77,6 +78,8 @@ export default function FaceEnrollPage() {
 const RING = 8;
 const NEED = RING + 1;
 const TURN = 0.17;         // how far the head must turn before a direction counts
+/* ring direction i points at i*45 degrees on screen (0 = right, 90 = down) */
+const DIR_NAME = ['daayein', 'neeche-daayein', 'neeche', 'neeche-baayein', 'baayein', 'upar-baayein', 'upar', 'upar-daayein'];
 
 export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | 'employee_code' | 'full_name'>; onClose: () => void; onSaved: () => void }) {
   const { busy, run } = useAction();
@@ -87,6 +90,8 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
   const [samples, setSamples] = useState<number[][]>([]);
   const [ring, setRing] = useState<boolean[]>(() => Array(RING).fill(false));
   const [front, setFront] = useState(false);
+  const [next, setNext] = useState<number | null>(null);
+  const mesh = useRef<HTMLCanvasElement>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -109,48 +114,73 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
       } catch (e) { setErr(e instanceof Error ? e.message : String(e)); return; }
       let base: { yaw: number; pitch: number; d: Float32Array } | null = null;
       let got: (Float32Array | null)[] = Array(RING).fill(null);
-      let last = 0;
+      let last = 0; let lastSeg = -1;
+      let tris: [number, number, number][] | null = null;
       const publish = () => {
         const all = [base?.d, ...got].filter(Boolean) as Float32Array[];
         setSamples(all.map((d) => Array.from(d)));
         setRing(got.map(Boolean)); setFront(!!base);
       };
+      // which direction to ask for next: the missing one nearest to where the head points now
+      const pickNext = (from: number) => {
+        const miss = got.map((g, i) => (g ? -1 : i)).filter((i) => i >= 0);
+        if (!miss.length) return null;
+        return miss.reduce((best, i) => {
+          const dist = (k: number) => Math.min((k - from + RING) % RING, (from - k + RING) % RING);
+          return dist(i) < dist(best) ? i : best;
+        }, miss[0]);
+      };
       while (alive) {
         const v: HTMLVideoElement | null = video.current;
-        if (!v || !capRef.current) { base = null; got = Array(RING).fill(null); await sleep(150); continue; }
+        const cv = mesh.current;
+        if (!v) { await sleep(150); continue; }
+        if (!capRef.current && base) { base = null; got = Array(RING).fill(null); lastSeg = -1; }
         let t: Tracked | null = null;
         try { t = await track(v); } catch { await sleep(150); continue; }
-        if (!t) { setStatus('Chehra camera mein laaiye'); await sleep(80); continue; }
-        if (t.others) { setStatus('Sirf MP camera ke saamne ho'); await sleep(80); continue; }
-        if (t.box.width < 70) { setStatus('Thoda paas aaiye'); await sleep(80); continue; }
+        if (!alive) break;
+        if (t && !tris) tris = delaunay(MESH_IDX.map((i) => t!.pts[i]));     // mesh shape fixed from the first face
+        if (cv) drawMesh(cv, v, t?.pts ?? null, tris, facing === 'user', capRef.current && base ? 'rgba(47,191,113,.95)' : 'rgba(255,255,255,.85)');
+        if (!capRef.current) { await sleep(70); continue; }
+        if (!t) { setStatus('Chehra gol ghere mein laaiye'); await sleep(70); continue; }
+        if (t.others) { setStatus('Sirf MP camera ke saamne ho'); await sleep(70); continue; }
+        if (t.box.width < 70) { setStatus('Thoda paas aaiye'); await sleep(70); continue; }
         if (!base) {   // 1) straight face first (this is also the photo)
-          if (Math.abs(t.yaw) > 0.12 || Math.abs(t.roll) > 12) { setStatus('Pehle seedha camera ki taraf dekhiye'); await sleep(80); continue; }
+          if (Math.abs(t.yaw) > 0.12 || Math.abs(t.roll) > 12) { setStatus('Pehle seedha camera ki taraf dekhiye'); await sleep(70); continue; }
           const d: Float32Array | null = await describeAt(v, t.box).catch(() => null);
           if (!d) continue;
           base = { yaw: t.yaw, pitch: t.pitch, d };
           setPhoto(snapshot(v, 360, 0.8)); publish();
-          setStatus('Ab sar dheere dheere gol ghumaiye ↻');
+          const nx = pickNext(0); setNext(nx);
+          setStatus(`Sar dheere se ${DIR_NAME[nx ?? 0]} le jaaiye`);
           continue;
         }
         // 2) which way is the head turned? (screen direction, so the ring fills where the face points)
         let dx: number = t.yaw - base.yaw; const dy: number = (t.pitch - base.pitch) * 3;
         if (facing === 'user') dx = -dx;
         const r = Math.hypot(dx, dy);
-        const left = got.filter((g) => !g).length;
-        if (r < TURN) { setStatus(`Sar dheere dheere gol ghumaiye ↻ (${RING - left}/${RING})`); await sleep(60); continue; }
-        if (r > 0.75) { setStatus('Itna zyada nahi — thoda kam ghumaiye'); await sleep(60); continue; }
         const seg = Math.round(((Math.atan2(dy, dx) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2 / RING)) % RING;
-        if (got[seg] || Date.now() - last < 200) { await sleep(40); continue; }
+        if (r < TURN) {
+          const nx = pickNext(lastSeg < 0 ? 0 : lastSeg); setNext(nx);
+          setStatus(`Sar dheere se ${DIR_NAME[nx ?? 0]} le jaaiye`); await sleep(50); continue;
+        }
+        if (r > 0.75) { setStatus('Itna zyada nahi — thoda kam ghumaiye'); await sleep(50); continue; }
+        if (got[seg] || Date.now() - last < 180) {
+          const nx = pickNext(seg); setNext(nx);
+          if (nx !== null) setStatus(`Ab ${DIR_NAME[nx]} — gol ghumate rahiye ↻`);
+          await sleep(40); continue;
+        }
         const d: Float32Array | null = await describeAt(v, t.box).catch(() => null);
         if (!alive) break;
         if (!d) continue;
         if (distance(base.d, d) > 0.62) { setStatus('Chehra badal gaya? — sirf MP camera ke saamne ho'); continue; }
-        got[seg] = d; last = Date.now(); publish();
-        if (got.every(Boolean)) {
+        got[seg] = d; last = Date.now(); lastSeg = seg; publish();
+        const nx = pickNext(seg); setNext(nx);
+        if (nx === null) {
           capRef.current = false; setCapturing(false);
           setStatus('Ho gaya ✓ — photo dekhiye aur Save kariye');
           continue;
         }
+        setStatus(`Badhiya — ab ${DIR_NAME[nx]} ↻`);
       }
     })();
     return () => { alive = false; stopCamera(stream); };
@@ -206,13 +236,16 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
       <Button variant="primary" busy={busy} disabled={!samples.length || !consent || (capturing && samples.length < 5)} onClick={() => void save()}>Save enrolment</Button>
     </>}>
       {problem ? <ErrorBox error="Camera is blocked on this http link. Use the HTTPS link or the Chrome flag described in the README (Face kiosk), or upload a photo below." /> : <>
-        <div className="face-stage small-stage">
-          <video ref={video} className={`face-video ${facing === 'user' ? 'mirror' : ''}`} playsInline muted />
-          {capturing || samples.length > 1 ? <FaceRing ring={ring} front={front} /> : null}
-          <div className="face-hint">{status}<div className="face-progress"><i style={{ width: `${(samples.length / NEED) * 100}%` }} /></div></div>
+        <div className="fid">
+          <div className="fid-circle">
+            <video ref={video} className={`face-video ${facing === 'user' ? 'mirror' : ''}`} playsInline muted />
+            <canvas ref={mesh} className="fid-mesh" />
+          </div>
+          <FaceRing ring={ring} front={front} next={capturing && front ? next : null} />
         </div>
+        <div className="fid-hint">{status}<span className="muted small"> · {samples.length}/{NEED}</span></div>
         <div className="row gap wrap">
-          <Button variant="primary" disabled={capturing} onClick={() => { setSamples([]); setPhoto(null); setRing(Array(RING).fill(false)); setFront(false); setCapturing(true); }}>{samples.length ? 'Retake' : 'Start capture'}</Button>
+          <Button variant="primary" disabled={capturing} onClick={() => { setSamples([]); setPhoto(null); setRing(Array(RING).fill(false)); setFront(false); setNext(null); setCapturing(true); }}>{samples.length ? 'Retake' : 'Start capture'}</Button>
           <Button variant="ghost" onClick={() => setFacing(facing === 'user' ? 'environment' : 'user')}>Switch camera</Button>
         </div>
       </>}
@@ -229,19 +262,24 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
   );
 }
 
-/** Face ID style ring: 8 parts round the face, each turns green when that direction is captured. */
-function FaceRing({ ring, front }: { ring: boolean[]; front: boolean }) {
-  const n = ring.length; const R = 46; const gap = 0.12;
-  const arc = (i: number) => {
-    const a0 = (i - 0.5) * (Math.PI * 2 / n) + gap; const a1 = (i + 0.5) * (Math.PI * 2 / n) - gap;
-    const p = (a: number) => `${50 + R * Math.cos(a)} ${50 + R * Math.sin(a)}`;
-    return `M ${p(a0)} A ${R} ${R} 0 0 1 ${p(a1)}`;
-  };
+/** Face ID style ring: ticks all round the circle; the ticks of a captured direction turn green and long,
+ *  an arrow shows where to move the head next. */
+function FaceRing({ ring, front, next }: { ring: boolean[]; front: boolean; next: number | null }) {
+  const TICKS = 72;
+  const seg = (a: number) => Math.round(a / (Math.PI * 2 / ring.length)) % ring.length;
+  const na = next === null ? 0 : next * (Math.PI * 2 / ring.length);
   return (
-    <svg className="face-ring" viewBox="0 0 100 100" aria-hidden>
-      <circle cx="50" cy="50" r={R - 6} fill="none" stroke={front ? 'rgba(47,191,113,.55)' : 'rgba(255,255,255,.25)'} strokeWidth="1.2" />
-      {ring.map((ok, i) => <path key={i} d={arc(i)} fill="none" strokeLinecap="round" strokeWidth={ok ? 5 : 3.5}
-        stroke={ok ? '#2fbf71' : 'rgba(255,255,255,.45)'} />)}
+    <svg className="fid-ring" viewBox="0 0 100 100" aria-hidden>
+      {Array.from({ length: TICKS }, (_, k) => {
+        const a = (k / TICKS) * Math.PI * 2;
+        const ok = front && ring[seg(a)];
+        const r0 = 44.5; const r1 = ok ? 49.5 : 47.5;
+        return <line key={k} x1={50 + r0 * Math.cos(a)} y1={50 + r0 * Math.sin(a)} x2={50 + r1 * Math.cos(a)} y2={50 + r1 * Math.sin(a)}
+          stroke={ok ? '#2fbf71' : 'rgba(255,255,255,.55)'} strokeWidth={ok ? 1.3 : 0.8} strokeLinecap="round" />;
+      })}
+      {next !== null && <g className="fid-arrow" transform={`translate(${50 + 37 * Math.cos(na)} ${50 + 37 * Math.sin(na)}) rotate(${(na * 180) / Math.PI})`}>
+        <path d="M -3 -5 L 4 0 L -3 5" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      </g>}
     </svg>
   );
 }
