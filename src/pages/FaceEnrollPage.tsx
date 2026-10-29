@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { del, get, imageUrl, post } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
-import { FACE_QUALITY, analyse, cameraProblem, distance, loadFaceEngine, snapshot, startCamera, stopCamera } from '../lib/face';
+import { analyse, cameraProblem, describeAt, distance, loadFaceEngine, snapshot, startCamera, stopCamera, track, type Tracked } from '../lib/face';
 import { fmtDateTime } from '../lib/format';
 import { Button, ErrorBox, Loading, Modal, useAction } from '../components/ui';
 
@@ -72,7 +72,11 @@ export default function FaceEnrollPage() {
   );
 }
 
-const NEED = 5;
+/* Face ID style enrolment: one straight sample (+ photo), then the head turned slowly in a circle —
+   8 directions round the ring, one sample each, so the gate recognises the MP from any angle. */
+const RING = 8;
+const NEED = RING + 1;
+const TURN = 0.17;         // how far the head must turn before a direction counts
 
 export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | 'employee_code' | 'full_name'>; onClose: () => void; onSaved: () => void }) {
   const { busy, run } = useAction();
@@ -81,6 +85,8 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
   const [status, setStatus] = useState('Loading…');
   const [capturing, setCapturing] = useState(false);
   const [samples, setSamples] = useState<number[][]>([]);
+  const [ring, setRing] = useState<boolean[]>(() => Array(RING).fill(false));
+  const [front, setFront] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -92,38 +98,59 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
     if (problem) return;
     let stream: MediaStream | null = null;
     let alive = true;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     (async () => {
       try {
         setStatus('Loading face models…');
         await loadFaceEngine();
         if (!alive || !video.current) return;
         stream = await startCamera(video.current, facing);
-        setStatus('Ready — press Start capture');
+        setStatus('Ready — Start capture dabaiye');
       } catch (e) { setErr(e instanceof Error ? e.message : String(e)); return; }
-      let got: Float32Array[] = [];
+      let base: { yaw: number; pitch: number; d: Float32Array } | null = null;
+      let got: (Float32Array | null)[] = Array(RING).fill(null);
       let last = 0;
+      const publish = () => {
+        const all = [base?.d, ...got].filter(Boolean) as Float32Array[];
+        setSamples(all.map((d) => Array.from(d)));
+        setRing(got.map(Boolean)); setFront(!!base);
+      };
       while (alive) {
-        const v = video.current;
-        if (!v || !capRef.current) { got = []; await new Promise((r) => setTimeout(r, 150)); continue; }
-        const fr = await analyse(v, true);
-        let msg = '';
-        if (fr.count === 0) msg = 'No face';
-        else if (fr.count > 1) msg = 'Only the MP should be in the frame';
-        else if (fr.sizeRatio < FACE_QUALITY.minSize) msg = 'Move closer';
-        else if (!fr.centered) msg = 'Centre the face';
-        else if (fr.score < FACE_QUALITY.minScore) msg = 'Look straight at the camera';
-        if (!msg && fr.descriptor && Date.now() - last > 350) {
-          if (got.length && distance(got[0], fr.descriptor) > 0.5) { got = []; msg = 'Face changed — restarting'; }
-          else {
-            got.push(fr.descriptor); last = Date.now();
-            if (got.length === 2) setPhoto(snapshot(v, 360, 0.8));
-            setSamples(got.map((d) => Array.from(d)));
-            if (got.length >= NEED) { capRef.current = false; setCapturing(false); setStatus('Captured — check the photo and save'); continue; }
-            msg = got.length === 1 ? 'Thoda left dekhiye' : got.length === 2 ? 'Thoda right dekhiye' : 'Seedha dekhiye';
-          }
+        const v: HTMLVideoElement | null = video.current;
+        if (!v || !capRef.current) { base = null; got = Array(RING).fill(null); await sleep(150); continue; }
+        let t: Tracked | null = null;
+        try { t = await track(v); } catch { await sleep(150); continue; }
+        if (!t) { setStatus('Chehra camera mein laaiye'); await sleep(80); continue; }
+        if (t.others) { setStatus('Sirf MP camera ke saamne ho'); await sleep(80); continue; }
+        if (t.box.width < 70) { setStatus('Thoda paas aaiye'); await sleep(80); continue; }
+        if (!base) {   // 1) straight face first (this is also the photo)
+          if (Math.abs(t.yaw) > 0.12 || Math.abs(t.roll) > 12) { setStatus('Pehle seedha camera ki taraf dekhiye'); await sleep(80); continue; }
+          const d: Float32Array | null = await describeAt(v, t.box).catch(() => null);
+          if (!d) continue;
+          base = { yaw: t.yaw, pitch: t.pitch, d };
+          setPhoto(snapshot(v, 360, 0.8)); publish();
+          setStatus('Ab sar dheere dheere gol ghumaiye ↻');
+          continue;
         }
-        setStatus(msg ? `${msg} (${got.length}/${NEED})` : `Capturing ${got.length}/${NEED}`);
-        await new Promise((r) => setTimeout(r, 80));
+        // 2) which way is the head turned? (screen direction, so the ring fills where the face points)
+        let dx: number = t.yaw - base.yaw; const dy: number = (t.pitch - base.pitch) * 3;
+        if (facing === 'user') dx = -dx;
+        const r = Math.hypot(dx, dy);
+        const left = got.filter((g) => !g).length;
+        if (r < TURN) { setStatus(`Sar dheere dheere gol ghumaiye ↻ (${RING - left}/${RING})`); await sleep(60); continue; }
+        if (r > 0.75) { setStatus('Itna zyada nahi — thoda kam ghumaiye'); await sleep(60); continue; }
+        const seg = Math.round(((Math.atan2(dy, dx) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2 / RING)) % RING;
+        if (got[seg] || Date.now() - last < 200) { await sleep(40); continue; }
+        const d: Float32Array | null = await describeAt(v, t.box).catch(() => null);
+        if (!alive) break;
+        if (!d) continue;
+        if (distance(base.d, d) > 0.62) { setStatus('Chehra badal gaya? — sirf MP camera ke saamne ho'); continue; }
+        got[seg] = d; last = Date.now(); publish();
+        if (got.every(Boolean)) {
+          capRef.current = false; setCapturing(false);
+          setStatus('Ho gaya ✓ — photo dekhiye aur Save kariye');
+          continue;
+        }
       }
     })();
     return () => { alive = false; stopCamera(stream); };
@@ -168,6 +195,7 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
   };
 
   const save = async () => {
+    capRef.current = false; setCapturing(false);     // 5+ directions are enough if the MP cannot turn further
     const r = await run(() => post('face/enroll', { employee_id: row.id, descriptors: samples, photo, consent }), `${row.full_name} enrolled`);
     if (r) onSaved();
   };
@@ -175,15 +203,16 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
   return (
     <Modal title={`Face enrolment — ${row.full_name} (${row.employee_code})`} onClose={onClose} wide footer={<>
       <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" busy={busy} disabled={!samples.length || !consent || capturing} onClick={() => void save()}>Save enrolment</Button>
+      <Button variant="primary" busy={busy} disabled={!samples.length || !consent || (capturing && samples.length < 5)} onClick={() => void save()}>Save enrolment</Button>
     </>}>
       {problem ? <ErrorBox error="Camera is blocked on this http link. Use the HTTPS link or the Chrome flag described in the README (Face kiosk), or upload a photo below." /> : <>
         <div className="face-stage small-stage">
           <video ref={video} className={`face-video ${facing === 'user' ? 'mirror' : ''}`} playsInline muted />
+          {capturing || samples.length > 1 ? <FaceRing ring={ring} front={front} /> : null}
           <div className="face-hint">{status}<div className="face-progress"><i style={{ width: `${(samples.length / NEED) * 100}%` }} /></div></div>
         </div>
         <div className="row gap wrap">
-          <Button variant="primary" disabled={capturing} onClick={() => { setSamples([]); setPhoto(null); setCapturing(true); }}>{samples.length ? 'Retake' : 'Start capture'}</Button>
+          <Button variant="primary" disabled={capturing} onClick={() => { setSamples([]); setPhoto(null); setRing(Array(RING).fill(false)); setFront(false); setCapturing(true); }}>{samples.length ? 'Retake' : 'Start capture'}</Button>
           <Button variant="ghost" onClick={() => setFacing(facing === 'user' ? 'environment' : 'user')}>Switch camera</Button>
         </div>
       </>}
@@ -197,5 +226,22 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
       {photo && <div className="row gap"><img className="face-thumb" src={photo} alt="" /><span className="small muted">{samples.length} sample(s) ready</span></div>}
       <label className="check"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> MP ne apna chehra gate attendance ke liye register karne ki sahmati di hai (consent recorded)</label>
     </Modal>
+  );
+}
+
+/** Face ID style ring: 8 parts round the face, each turns green when that direction is captured. */
+function FaceRing({ ring, front }: { ring: boolean[]; front: boolean }) {
+  const n = ring.length; const R = 46; const gap = 0.12;
+  const arc = (i: number) => {
+    const a0 = (i - 0.5) * (Math.PI * 2 / n) + gap; const a1 = (i + 0.5) * (Math.PI * 2 / n) - gap;
+    const p = (a: number) => `${50 + R * Math.cos(a)} ${50 + R * Math.sin(a)}`;
+    return `M ${p(a0)} A ${R} ${R} 0 0 1 ${p(a1)}`;
+  };
+  return (
+    <svg className="face-ring" viewBox="0 0 100 100" aria-hidden>
+      <circle cx="50" cy="50" r={R - 6} fill="none" stroke={front ? 'rgba(47,191,113,.55)' : 'rgba(255,255,255,.25)'} strokeWidth="1.2" />
+      {ring.map((ok, i) => <path key={i} d={arc(i)} fill="none" strokeLinecap="round" strokeWidth={ok ? 5 : 3.5}
+        stroke={ok ? '#2fbf71' : 'rgba(255,255,255,.45)'} />)}
+    </svg>
   );
 }

@@ -162,6 +162,7 @@ export interface Tracked {
   box: Box; score: number; vw: number; vh: number;
   others: number;                  // other faces of similar size (a second person close by)
   yaw: number; roll: number;       // rough head turn (0 = straight) and tilt in degrees
+  pitch: number;                   // nose height between eyes and chin (~0.4 straight; smaller = looking up)
   ear: number | null;
 }
 
@@ -187,6 +188,7 @@ export async function track(video: HTMLVideoElement): Promise<Tracked | null> {
     box: { x: b.x, y: b.y, width: b.width, height: b.height }, score: main.detection.score, vw, vh,
     others: all.filter((o) => o !== main && o.detection.box.width > b.width * 0.6).length,
     yaw: (pts[30].x - mid.x) / ed,
+    pitch: (pts[30].y - mid.y) / Math.max(1, pts[8].y - mid.y),
     roll: (Math.atan2(eyeB.y - eyeA.y, eyeB.x - eyeA.x) * 180) / Math.PI,
     ear: eyeAspectRatio(pts),
   };

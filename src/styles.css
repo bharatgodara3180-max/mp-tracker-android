@@ -490,3 +490,6 @@ button.pill { cursor: pointer; border: 0; }
 .gate-notfound { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .gate-add { display: grid; gap: 10px; }
 .gate-add h4 { margin: 0; }
+
+.face-ring { position: absolute; left: 50%; top: 50%; height: 92%; aspect-ratio: 1; transform: translate(-50%, -50%); pointer-events: none; }
+.face-ring path { transition: stroke .2s, stroke-width .2s; }
