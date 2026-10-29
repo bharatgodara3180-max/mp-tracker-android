@@ -180,7 +180,6 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
       {problem ? <ErrorBox error="Camera is blocked on this http link. Use the HTTPS link or the Chrome flag described in the README (Face kiosk), or upload a photo below." /> : <>
         <div className="face-stage small-stage">
           <video ref={video} className={`face-video ${facing === 'user' ? 'mirror' : ''}`} playsInline muted />
-          <div className={`face-guide ${capturing ? 'locking' : ''}`} />
           <div className="face-hint">{status}<div className="face-progress"><i style={{ width: `${(samples.length / NEED) * 100}%` }} /></div></div>
         </div>
         <div className="row gap wrap">

@@ -54,7 +54,7 @@ export function cameraProblem(): string | null {
 
 export async function startCamera(video: HTMLVideoElement, facing: 'user' | 'environment'): Promise<MediaStream> {
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: false, video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 } },
+    audio: false, video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
   });
   video.srcObject = stream;
   video.muted = true;
@@ -165,12 +165,16 @@ export interface Tracked {
   ear: number | null;
 }
 
+let far = false;
 /** Fast pass for every frame: detector + landmarks only (no recognition network). */
 export async function track(video: HTMLVideoElement): Promise<Tracked | null> {
   const f = await loadFaceEngine();
   const vw = video.videoWidth; const vh = video.videoHeight;
   if (!vw || !vh || video.readyState < 2) return null;
-  const all = await f.detectAllFaces(video, new f.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 })).withFaceLandmarks();
+  // near faces: quick 288 pass; nothing found -> every other frame a finer 448 pass, so far faces are found too
+  far = !far;
+  let all = await f.detectAllFaces(video, new f.TinyFaceDetectorOptions({ inputSize: 288, scoreThreshold: 0.45 })).withFaceLandmarks();
+  if (!all.length && far) all = await f.detectAllFaces(video, new f.TinyFaceDetectorOptions({ inputSize: 448, scoreThreshold: 0.45 })).withFaceLandmarks();
   if (!all.length) return null;
   const main = all.reduce((a, b) => (b.detection.box.width > a.detection.box.width ? b : a));
   const b = main.detection.box;
@@ -188,21 +192,40 @@ export async function track(video: HTMLVideoElement): Promise<Tracked | null> {
   };
 }
 
-/** Kiosk rules for "the face is ready to be recognised"; returns the hint to show, or '' when ready. */
-export const KIOSK_FACE = { minSize: 0.2, maxSize: 0.78, minScore: 0.5, maxYaw: 0.3, maxRoll: 18, edge: 0.02, steady: 0.035 };
+/** Kiosk rules for "the face is ready to be recognised" (any distance: the face is cut out and enlarged);
+ *  returns the hint to show, or '' when ready. */
+export const KIOSK_FACE = { minPx: 56, minScore: 0.5, maxYaw: 0.3, maxRoll: 18, steady: 0.25 };
 export function readiness(t: Tracked | null): string {
   if (!t) return 'Camera ke saamne aaiye';
   if (t.others) return 'Ek baar mein ek vyakti';
-  const r = t.box.width / t.vw;
-  if (r < KIOSK_FACE.minSize) return 'Thoda paas aaiye';
-  if (r > KIOSK_FACE.maxSize) return 'Thoda peeche hatiye';
-  const e = KIOSK_FACE.edge;
-  if (t.box.x < t.vw * e || t.box.y < t.vh * e || t.box.x + t.box.width > t.vw * (1 - e) || t.box.y + t.box.height > t.vh * (1 - e))
-    return 'Pura chehra camera mein laaiye';
+  if (t.box.width < KIOSK_FACE.minPx) return 'Thoda paas aaiye';           // too few pixels to recognise
+  const cut = t.box.x < 0 || t.box.y < 0 || t.box.x + t.box.width > t.vw || t.box.y + t.box.height > t.vh;
+  if (cut) return 'Pura chehra camera mein laaiye';
   if (Math.abs(t.yaw) > KIOSK_FACE.maxYaw) return 'Seedha camera ki taraf dekhiye';
   if (Math.abs(t.roll) > KIOSK_FACE.maxRoll) return 'Sar seedha rakhiye';
   if (t.score < KIOSK_FACE.minScore) return 'Roshni mein seedha dekhiye';
   return '';
+}
+
+const crop = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+/** Recognise the tracked face: cut it out of the frame (with margin) and enlarge it, so near and far faces are
+ *  recognised alike. Returns the 128-number descriptor, or null if no clear face in the cut. */
+export async function describeAt(video: HTMLVideoElement, box: Box): Promise<Float32Array | null> {
+  const f = await loadFaceEngine();
+  if (!crop) return null;
+  const m = 0.5;
+  const sx = Math.max(0, box.x - box.width * m); const sy = Math.max(0, box.y - box.height * m * 1.1);
+  const ex = Math.min(video.videoWidth, box.x + box.width * (1 + m)); const ey = Math.min(video.videoHeight, box.y + box.height * (1 + m * 0.9));
+  const sw = ex - sx; const sh = ey - sy;
+  if (sw < 20 || sh < 20) return null;
+  const scale = 320 / sw;                                   // face ends up ~160 px wide whatever the distance
+  crop.width = 320; crop.height = Math.round(sh * scale);
+  const g = crop.getContext('2d', { willReadFrequently: true });
+  if (!g) return null;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(video, sx, sy, sw, sh, 0, 0, crop.width, crop.height);
+  const r = await f.detectSingleFace(crop, new f.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 })).withFaceLandmarks().withFaceDescriptor();
+  return r?.descriptor ?? null;
 }
 
 /** Best effort: point the camera's focus / exposure at the face (Android Chrome supports it on many phones). */

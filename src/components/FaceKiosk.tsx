@@ -3,7 +3,7 @@
  * camera + recognition loop, full-screen result, sounds, camera help.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { BlinkDetector, FACE_QUALITY, KIOSK_FACE, SAMPLES_NEEDED, analyse, distance, focusOn, loadFaceEngine, mean, readiness, snapshot, startCamera, stopCamera, track, type Tracked } from '../lib/face';
+import { BlinkDetector, FACE_QUALITY, KIOSK_FACE, SAMPLES_NEEDED, describeAt, distance, focusOn, loadFaceEngine, mean, readiness, snapshot, startCamera, stopCamera, track, type Tracked } from '../lib/face';
 import { Button } from './ui';
 
 export interface KioskResult { label: string; sub?: string; tone: 'green' | 'blue' | 'red' | 'amber'; alarm?: boolean }
@@ -134,7 +134,8 @@ export function useFaceCapture(opts: {
         const placed = !msg;          // right distance / pose -> green box (even while waiting to be steady)
         if (!t) { blink.reset(); samples = []; } else blink.push(t.ear);
         if (!msg && t) {
-          const c = { x: (t.box.x + t.box.width / 2) / t.vw, y: (t.box.y + t.box.height / 2) / t.vh };
+          // steady = moved less than a quarter of its own face width (works near and far)
+          const c = { x: (t.box.x + t.box.width / 2) / t.box.width, y: (t.box.y + t.box.height / 2) / t.box.width };
           steady = prev && Math.hypot(c.x - prev.x, c.y - prev.y) < KIOSK_FACE.steady ? steady + 1 : 0;
           prev = c;
           if (steady < 2) msg = 'Ruk ke seedha dekhiye';
@@ -149,14 +150,14 @@ export function useFaceCapture(opts: {
         if (t && Date.now() - focusAt > 1500) { focusAt = Date.now(); focusOn(stream, t, mirror); }
 
         // ready: recognise (heavier network, only now)
-        let fr;
-        try { fr = await analyse(v, true); } catch { await sleep(150); continue; }
+        let desc: Float32Array | null = null;
+        try { desc = t ? await describeAt(v, t.box) : null; } catch { await sleep(150); continue; }
         if (!alive) break;
-        if (fr.count < 1 || !fr.descriptor) { samples = []; await frame(); continue; }
+        if (!desc) { samples = []; await frame(); continue; }
         const now = Date.now();
         samples = samples.filter((x) => now - x.at < 3000);
-        if (samples.length && distance(samples[0].d, fr.descriptor) > FACE_QUALITY.consistent) samples = [];
-        samples.push({ d: fr.descriptor, at: now });
+        if (samples.length && distance(samples[0].d, desc) > FACE_QUALITY.consistent) samples = [];
+        samples.push({ d: desc, at: now });
         if (samples.length === 1) snap = snapshot(v);
         setProgress(Math.min(samples.length, SAMPLES_NEEDED));
         setHint('Pehchaan ho rahi hai…');
