@@ -6,7 +6,7 @@
  *  - any other link (Asset Desk /ASSETS ...)                 -> opened as it is; Android Back returns here
  */
 import { useEffect, useRef, useState } from 'react';
-import { isLocalhostServer, isMpLink, lastLink, markLinkChosen, normalizeLink, normalizeServer, openLinkNow, parseGateLink, saveAppSetup, saveLastLink, takeAutoOpen } from '../lib/native';
+import { isLocalhostServer, isMpLink, BOOT_AUTO, lastLink, markLinkChosen, normalizeLink, normalizeServer, openLinkNow, parseGateLink, saveAppSetup, saveLastLink } from '../lib/native';
 import { Button, ErrorBox } from '../components/ui';
 
 async function reachable(url: string, token?: string): Promise<{ ok: boolean; status?: number }> {
@@ -24,6 +24,7 @@ export default function AppSetupPage() {
   const [server, setServer] = useState('');
   const [needServer, setNeedServer] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [opening, setOpening] = useState(BOOT_AUTO);   // cold start: show only a splash while the saved link opens
   const [error, setError] = useState<string | null>(null);
 
   const go = async (override?: string) => {
@@ -65,7 +66,7 @@ export default function AppSetupPage() {
           const t = setTimeout(() => ctl.abort(), 8000);
           await fetch(url, { mode: 'no-cors', signal: ctl.signal });
           clearTimeout(t);
-          setBusy(false); saveLastLink(raw); openLinkNow(url); return;
+          setBusy(false); saveLastLink(raw); saveAppSetup(null, null); openLinkNow(url); return;
         } catch { /* really unreachable */ }
       }
       setBusy(false);
@@ -88,6 +89,7 @@ export default function AppSetupPage() {
     } catch { setBusy(false); setError('Cannot reach this link. Check the address and your network.'); return; }
     setBusy(false);
     saveLastLink(raw);
+    saveAppSetup(null, null);
     openLinkNow(url!);
   };
 
@@ -96,9 +98,11 @@ export default function AppSetupPage() {
   useEffect(() => {
     if (auto.current) return;
     auto.current = true;
-    if (takeAutoOpen()) void go(lastLink());
+    if (BOOT_AUTO) void go(lastLink()).finally(() => setOpening(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  if (opening) return <div className="kiosk"><div className="kiosk-card"><h2>SFXBM</h2><p style={{ opacity: 0.7 }}>Opening...</p></div></div>;
 
   return (
     <div className="kiosk">

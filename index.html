@@ -5,6 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0d1117" />
     <title>MP Control Tower</title>
+    <style>html,body{background:#0b1020}</style>
+    <script>
+      // SFXBM app, cold start with a saved non-MP link (Asset Desk, /ASSETS/go ...): open it at once, before the app itself loads
+      (function () {
+        try {
+          var cap = window.Capacitor;
+          if (!cap || !cap.isNativePlatform || !cap.isNativePlatform()) return;
+          if (sessionStorage.getItem('sfxbm-auto') === '1') return;
+          var u = localStorage.getItem('sfxbm-last-url');
+          if (!u || localStorage.getItem('sfxbm-v') !== '101') return;
+          var x = new URL(u);
+          var p = x.pathname.replace(/\/+$/, '');
+          var mp = x.port === '8010' || /^\/mp(\/|$)/i.test(p) || (p === '' && x.port === '') || /[?&#]d=/.test(u) && /[?&#]k=/.test(u);
+          if (mp) return;
+          sessionStorage.setItem('sfxbm-auto', '1');
+          window.location.href = u;
+        } catch (e) {}
+      })();
+    </script>
     <meta name="mobile-web-app-capable" content="yes" />
     <link rel="apple-touch-icon" href="icon-gate-192.png" id="apple-icon" />
     <link rel="manifest" href="manifest-deploy.webmanifest" id="app-manifest" />
