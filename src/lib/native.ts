@@ -2,11 +2,9 @@
  * Android app (Capacitor) support. Inside the app the web files are local (http://localhost),
  * so the MP Tracker server address is chosen once in the app setup screen.
  */
-export type AppMode = 'gate' | 'supervisor' | 'link';
+export type AppMode = 'gate' | 'supervisor';
 const SERVER_KEY = 'mp-app-server';
 const MODE_KEY = 'mp-app-mode';
-const LINK_KEY = 'sfxbm-open-link';
-const OPENED_KEY = 'sfxbm-opened';       // sessionStorage: the saved link was already opened in this app run
 
 export function isNativeApp(): boolean {
   const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
@@ -70,11 +68,20 @@ export function isMpLink(link: string): boolean {
   } catch { return false; }
 }
 
-export const savedLink = () => get(LINK_KEY);
-export function saveOpenLink(link: string) { set(LINK_KEY, link); set(SERVER_KEY, null); set(MODE_KEY, 'link'); }
-export const alreadyOpenedThisRun = () => { try { return sessionStorage.getItem(OPENED_KEY) === '1'; } catch { return false; } };
-/** Open the link inside the app. The Android Back button comes back to the link screen. */
+const RUN_KEY = 'sfxbm-run';         // sessionStorage: a link was entered in this app run (a fresh app start always shows the link box)
+const VER_KEY = 'sfxbm-v';           // localStorage: one-time wipe of the link / server saved by older versions
+
+/** Fresh install / update: forget any link or server saved by older versions (nothing is fixed any more). */
+export function migrateOnce() {
+  if (!isNativeApp() || get(VER_KEY) === '101') return;
+  set(SERVER_KEY, null); set(MODE_KEY, null); set('mp-gate-link', null); set('sfxbm-open-link', null);
+  set(VER_KEY, '101');
+}
+/** True once a link has been entered since the app was started. A cold start (or coming Back from an opened link) shows the link box again. */
+export const linkChosenThisRun = () => { try { return sessionStorage.getItem(RUN_KEY) === '1'; } catch { return false; } };
+export function markLinkChosen() { try { sessionStorage.setItem(RUN_KEY, '1'); } catch { /* ignore */ } }
+/** Open the link inside the app. The Android Back button comes back to the empty link box. */
 export function openLinkNow(link: string) {
-  try { sessionStorage.setItem(OPENED_KEY, '1'); } catch { /* ignore */ }
+  try { sessionStorage.removeItem(RUN_KEY); } catch { /* ignore */ }
   window.location.href = link;
 }

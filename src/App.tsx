@@ -7,7 +7,7 @@ import { useOpenAlerts } from './hooks/useAlerts';
 import { get, post } from './lib/api';
 import { fmtTime } from './lib/format';
 import type { AppRole } from './lib/types';
-import { alreadyOpenedThisRun, appMode, appServer, isNativeApp, openLinkNow, savedLink } from './lib/native';
+import { appMode, appServer, isNativeApp, linkChosenThisRun, migrateOnce } from './lib/native';
 import { Button, ErrorBox, Field, Loading, ToastProvider } from './components/ui';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -62,12 +62,9 @@ function Shell() {
   const { profile, loading, error } = useAuth();
   const loc = useLocation();
   const wait = <div className="center-screen"><Loading /></div>;
-  // SFXBM: a saved "any link" opens straight away once per app run; Back from it returns to the link screen
-  if (isNativeApp() && appMode() === 'link' && loc.pathname !== '/app-setup') {
-    const l = savedLink();
-    if (l && !alreadyOpenedThisRun()) { openLinkNow(l); return <div className="center-screen"><Loading label="Opening…" /></div>; }
-    return <Suspense fallback={wait}><AppSetupPage /></Suspense>;
-  }
+  // SFXBM: every fresh app start begins with the empty link box (a gate tablet, set up by its gate link, still starts straight on its gate screen)
+  migrateOnce();
+  if (isNativeApp() && loc.pathname !== '/dc-gate' && !linkChosenThisRun() && !(appMode() === 'gate' && appServer())) return <Suspense fallback={wait}><AppSetupPage /></Suspense>;
   // Android app: setup first; a gate tablet always shows the gate screen (no login)
   if (isNativeApp() && (loc.pathname === '/app-setup' || !appServer() || !appMode())) return <Suspense fallback={wait}><AppSetupPage /></Suspense>;
   if (isNativeApp() && appMode() === 'gate') return <Suspense fallback={wait}><DcGatePage /></Suspense>;

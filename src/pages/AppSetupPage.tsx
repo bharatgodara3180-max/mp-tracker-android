@@ -2,9 +2,10 @@
  * SFXBM first screen: nothing is pre-filled. The user enters a link and it opens.
  *  - MP Tracker link (gate link, server address :8010, /MP)  -> built-in MP screens (face camera works on plain http)
  *  - any other link (Asset Desk /ASSETS ...)                 -> opened as it is; Android Back returns here
+ * Every fresh app start shows this empty box - no link is stored as a default.
  */
 import { useState } from 'react';
-import { alreadyOpenedThisRun, isLocalhostServer, isMpLink, normalizeLink, normalizeServer, openLinkNow, parseGateLink, saveAppSetup, saveOpenLink, savedLink } from '../lib/native';
+import { isLocalhostServer, isMpLink, markLinkChosen, normalizeLink, normalizeServer, openLinkNow, parseGateLink, saveAppSetup } from '../lib/native';
 import { Button, ErrorBox } from '../components/ui';
 
 async function reachable(url: string, token?: string): Promise<{ ok: boolean; status?: number }> {
@@ -18,12 +19,11 @@ async function reachable(url: string, token?: string): Promise<{ ok: boolean; st
 }
 
 export default function AppSetupPage() {
-  const [link, setLink] = useState(savedLink() ?? '');
+  const [link, setLink] = useState('');
   const [server, setServer] = useState('');
   const [needServer, setNeedServer] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const cameBack = !!savedLink() && alreadyOpenedThisRun();
 
   const go = async () => {
     setError(null);
@@ -43,6 +43,7 @@ export default function AppSetupPage() {
       if (!r.ok) { setError('Cannot reach the server. Is the device on the right network and the address correct?'); return; }
       try { localStorage.setItem('mp-gate-link', JSON.stringify({ d: gate.device, k: gate.key })); } catch { /* ignore */ }
       saveAppSetup(s, 'gate');
+      markLinkChosen();
       window.location.hash = '#/dc-gate';
       window.location.reload();
       return;
@@ -57,6 +58,7 @@ export default function AppSetupPage() {
       setBusy(false);
       if (!r.ok) { setError(r.status ? `The server answered ${r.status}. Check the link.` : 'Cannot reach the server. Is the device on the right network and the link correct?'); return; }
       saveAppSetup(s, 'supervisor');
+      markLinkChosen();
       window.location.hash = '#/';
       window.location.reload();
       return;
@@ -71,7 +73,6 @@ export default function AppSetupPage() {
       clearTimeout(t);
     } catch { setBusy(false); setError('Cannot reach this link. Check the address and your network.'); return; }
     setBusy(false);
-    saveOpenLink(url!);
     openLinkNow(url!);
   };
 
@@ -79,7 +80,6 @@ export default function AppSetupPage() {
     <div className="kiosk">
       <div className="kiosk-card wide">
         <h2>SFXBM</h2>
-        {cameBack && <p className="muted">Enter a different link to switch, or open the same one again.</p>}
         <label className="field">
           <span className="field-label">Link</span>
           <textarea rows={2} value={link} onChange={(e) => { setLink(e.target.value); setError(null); }}
