@@ -80,6 +80,15 @@ export function migrateOnce() {
 /** True once a link has been entered since the app was started. A cold start (or coming Back from an opened link) shows the link box again. */
 export const linkChosenThisRun = () => { try { return sessionStorage.getItem(RUN_KEY) === '1'; } catch { return false; } };
 export function markLinkChosen() { try { sessionStorage.setItem(RUN_KEY, '1'); } catch { /* ignore */ } }
+const LAST_KEY = 'sfxbm-last-link';  // localStorage: the last link that opened successfully (reopened on the next app start)
+const AUTO_KEY = 'sfxbm-auto';       // sessionStorage: the last link was already auto-opened in this app run
+export const lastLink = () => get(LAST_KEY) ?? '';
+export const saveLastLink = (link: string) => set(LAST_KEY, link.trim() || null);
+/** True only once per app run: tells the link screen to open the saved link by itself (cold start). */
+export function takeAutoOpen(): boolean {
+  try { if (sessionStorage.getItem(AUTO_KEY) === '1') return false; sessionStorage.setItem(AUTO_KEY, '1'); } catch { return false; }
+  return !!lastLink();
+}
 /** Open the link inside the app. The Android Back button comes back to the empty link box. */
 export function openLinkNow(link: string) {
   try { sessionStorage.removeItem(RUN_KEY); } catch { /* ignore */ }
