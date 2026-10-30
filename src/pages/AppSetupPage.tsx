@@ -1,87 +1,98 @@
 /**
- * Android app first-run setup: Gate tablet (DC IN/OUT, no login) or Supervisor (login -> Deploy).
+ * SFXBM first screen: nothing is pre-filled. The user enters a link and it opens.
+ *  - MP Tracker link (gate link, server address :8010, /MP)  -> built-in MP screens (face camera works on plain http)
+ *  - any other link (Asset Desk /ASSETS ...)                 -> opened as it is; Android Back returns here
  */
 import { useState } from 'react';
-import { appMode, appServer, isLocalhostServer, normalizeServer, parseGateLink, saveAppSetup, type AppMode } from '../lib/native';
-import { Button, ErrorBox, Field } from '../components/ui';
+import { alreadyOpenedThisRun, isLocalhostServer, isMpLink, normalizeLink, normalizeServer, openLinkNow, parseGateLink, saveAppSetup, saveOpenLink, savedLink } from '../lib/native';
+import { Button, ErrorBox } from '../components/ui';
 
-async function check(url: string, token?: string): Promise<string | null> {
+async function reachable(url: string, token?: string): Promise<{ ok: boolean; status?: number }> {
   try {
-    const res = await fetch(url, { headers: { 'ngrok-skip-browser-warning': '1', ...(token ? { 'X-MP-Token': token } : {}) } });
-    if (res.status === 401) return 'Gate link purana / galat hai — Admin → Devices → Gate link se naya link lijiye.';
-    if (!res.ok) return `Server ne ${res.status} diya — address check kariye.`;
-    return null;
-  } catch {
-    return 'Server tak nahi pahunch paaye. Tablet/phone usi WiFi pe hai? Address sahi hai (jaise http://192.168.1.20:8010)?';
-  }
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 8000);
+    const res = await fetch(url, { headers: { 'ngrok-skip-browser-warning': '1', ...(token ? { 'X-MP-Token': token } : {}) }, signal: ctl.signal });
+    clearTimeout(t);
+    return { ok: res.ok, status: res.status };
+  } catch { return { ok: false }; }
 }
 
 export default function AppSetupPage() {
-  const [mode, setMode] = useState<AppMode | null>(appMode());
-  const [link, setLink] = useState('');
-  const [server, setServer] = useState(appServer() ?? '');
+  const [link, setLink] = useState(savedLink() ?? '');
+  const [server, setServer] = useState('');
+  const [needServer, setNeedServer] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cameBack = !!savedLink() && alreadyOpenedThisRun();
 
-  const onLink = (v: string) => {
-    setLink(v);
-    const p = parseGateLink(v);
-    if (p?.server && !isLocalhostServer(p.server)) setServer(p.server);
-  };
-
-  const saveGate = async () => {
+  const go = async () => {
     setError(null);
-    const p = parseGateLink(link);
-    if (!p) { setError('Ye Gate link nahi lag raha. Admin → Devices → Gate link se poora link copy kariye.'); return; }
-    const s = normalizeServer(server || p.server || '');
-    if (!s || isLocalhostServer(s)) { setError('Server address daaliye (server PC ka IP, jaise http://192.168.1.20:8010).'); return; }
-    setBusy(true);
-    const err = await check(`${s}api/face/config`, `kiosk:${p.device}:${p.key}`);
-    setBusy(false);
-    if (err) { setError(err); return; }
-    try { localStorage.setItem('mp-gate-link', JSON.stringify({ d: p.device, k: p.key })); } catch { /* ignore */ }
-    saveAppSetup(s, 'gate');
-    window.location.hash = '#/dc-gate';
-    window.location.reload();
-  };
+    const raw = link.trim();
+    const gate = parseGateLink(raw);
+    const url = gate ? null : normalizeLink(raw);
+    if (!gate && !url) { setError('Enter a valid link.'); return; }
 
-  const saveSupervisor = async () => {
-    setError(null);
-    const s = normalizeServer(server);
-    if (!s || isLocalhostServer(s)) { setError('Server address daaliye (jaise http://192.168.1.20:8010).'); return; }
+    // ---- MP Tracker gate tablet (no login) ----
+    if (gate) {
+      const s = normalizeServer(server || gate.server || '');
+      if (!s || isLocalhostServer(s)) { setNeedServer(true); setError('This gate link points to localhost - also enter the server address below.'); return; }
+      setBusy(true);
+      const r = await reachable(`${s}api/face/config`, `kiosk:${gate.device}:${gate.key}`);
+      setBusy(false);
+      if (r.status === 401) { setError('This gate link is old or wrong. Copy a new one from Admin > Devices > Gate link.'); return; }
+      if (!r.ok) { setError('Cannot reach the server. Is the device on the right network and the address correct?'); return; }
+      try { localStorage.setItem('mp-gate-link', JSON.stringify({ d: gate.device, k: gate.key })); } catch { /* ignore */ }
+      saveAppSetup(s, 'gate');
+      window.location.hash = '#/dc-gate';
+      window.location.reload();
+      return;
+    }
+
+    // ---- MP Tracker login (supervisor / admin / gate operator) ----
+    if (url && isMpLink(url)) {
+      const s = normalizeServer(url);
+      if (!s) { setError('Enter a valid link.'); return; }
+      setBusy(true);
+      const r = await reachable(`${s}api/health`);
+      setBusy(false);
+      if (!r.ok) { setError(r.status ? `The server answered ${r.status}. Check the link.` : 'Cannot reach the server. Is the device on the right network and the link correct?'); return; }
+      saveAppSetup(s, 'supervisor');
+      window.location.hash = '#/';
+      window.location.reload();
+      return;
+    }
+
+    // ---- any other link (Asset Desk etc.) ----
     setBusy(true);
-    const err = await check(`${s}api/health`);
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 8000);
+      await fetch(url!, { mode: 'no-cors', signal: ctl.signal });
+      clearTimeout(t);
+    } catch { setBusy(false); setError('Cannot reach this link. Check the address and your network.'); return; }
     setBusy(false);
-    if (err) { setError(err); return; }
-    saveAppSetup(s, 'supervisor');
-    window.location.hash = '#/';            // after login the role decides the screen
-    window.location.reload();
+    saveOpenLink(url!);
+    openLinkNow(url!);
   };
 
   return (
     <div className="kiosk">
       <div className="kiosk-card wide">
-        <h2>MP Tracker — app setup</h2>
-        <p className="muted">Ye device kis kaam ke liye hai?</p>
-        <div className="kiosk-modes two">
-          <button className={`kiosk-mode ${mode === 'gate' ? 'active' : ''}`} onClick={() => setMode('gate')}>Gate tablet<br /><span className="small">DC IN / OUT</span></button>
-          <button className={`kiosk-mode ${mode === 'supervisor' ? 'active' : ''}`} onClick={() => setMode('supervisor')}>Login<br /><span className="small">Supervisor / Admin / Gate operator</span></button>
-        </div>
-        {mode === 'gate' && <>
-          <Field label="Gate link" hint="Admin → Devices → GATE-FACE-TAB-01 → Gate link → Copy, aur yahan paste kariye">
-            <textarea rows={3} value={link} onChange={(e) => onLink(e.target.value)} placeholder="https://…/#/dc-gate?d=GATE-FACE-TAB-01&k=…" />
-          </Field>
-          <Field label="Server address" hint="Server PC ka address. Link 'localhost' wala ho to yahan PC ka IP likhiye.">
-            <input value={server} onChange={(e) => setServer(e.target.value)} placeholder="http://192.168.1.20:8010" inputMode="url" autoCapitalize="none" />
-          </Field>
-          <Button variant="primary" busy={busy} onClick={() => void saveGate()}>Save & start gate</Button>
-        </>}
-        {mode === 'supervisor' && <>
-          <Field label="Server address" hint="DC WiFi pe: http://<server PC ka IP>:8010 · bahar se: https://…ngrok-free.dev">
-            <input value={server} onChange={(e) => setServer(e.target.value)} placeholder="http://192.168.1.20:8010" inputMode="url" autoCapitalize="none" />
-          </Field>
-          <Button variant="primary" busy={busy} onClick={() => void saveSupervisor()}>Save & login</Button>
-        </>}
+        <h2>SFXBM</h2>
+        {cameBack && <p className="muted">Enter a different link to switch, or open the same one again.</p>}
+        <label className="field">
+          <span className="field-label">Link</span>
+          <textarea rows={2} value={link} onChange={(e) => { setLink(e.target.value); setError(null); }}
+            autoCapitalize="none" autoCorrect="off" spellCheck={false} inputMode="url" autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void go(); } }} />
+        </label>
+        {needServer && (
+          <label className="field">
+            <span className="field-label">Server address</span>
+            <input value={server} onChange={(e) => setServer(e.target.value)} autoCapitalize="none" inputMode="url" />
+          </label>
+        )}
+        <Button variant="primary" busy={busy} disabled={!link.trim()} onClick={() => void go()}>Open</Button>
         <ErrorBox error={error} />
       </div>
     </div>

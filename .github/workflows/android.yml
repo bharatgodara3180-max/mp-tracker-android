@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+env:
+  APP_VERSION: "1.01"
 permissions:
   contents: write
 jobs:
@@ -29,14 +31,18 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease -PMP_STORE_PASSWORD="${{ secrets.MP_STORE_PASSWORD }}" -PMP_KEY_PASSWORD="${{ secrets.MP_STORE_PASSWORD }}"
       - name: Rename
-        run: cp android/app/build/outputs/apk/release/app-release.apk "MP-Tracker-1.0.${{ github.run_number }}.apk"
+        run: cp android/app/build/outputs/apk/release/app-release.apk "SFXBM-${APP_VERSION}.apk"
       - uses: actions/upload-artifact@v4
         with:
-          name: MP-Tracker-apk
-          path: MP-Tracker-*.apk
+          name: SFXBM-apk
+          path: SFXBM-*.apk
       - name: Publish as a release (download link)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v1.0.${{ github.run_number }}" "MP-Tracker-1.0.${{ github.run_number }}.apk" \
-            --title "MP Tracker 1.0.${{ github.run_number }}" --notes "Android APK (Gate DC IN/OUT + Supervisor Deploy). Commit ${{ github.sha }}"
+          if gh release view "v${APP_VERSION}" >/dev/null 2>&1; then
+            gh release upload "v${APP_VERSION}" "SFXBM-${APP_VERSION}.apk" --clobber
+          else
+            gh release create "v${APP_VERSION}" "SFXBM-${APP_VERSION}.apk" \
+              --title "SFXBM ${APP_VERSION}" --notes "SFXBM Android APK ${APP_VERSION} - enter any link (MP Tracker, Asset Desk ...). Commit ${{ github.sha }}"
+          fi

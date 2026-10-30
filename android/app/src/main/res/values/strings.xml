@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">MP Tracker</string>
-    <string name="title_activity_main">MP Tracker</string>
+    <string name="app_name">SFXBM</string>
+    <string name="title_activity_main">SFXBM</string>
     <string name="package_name">com.rajeev.mptracker</string>
     <string name="custom_url_scheme">com.rajeev.mptracker</string>
 </resources>

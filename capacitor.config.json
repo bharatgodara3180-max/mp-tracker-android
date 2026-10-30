@@ -1,7 +1,16 @@
 {
   "appId": "com.rajeev.mptracker",
-  "appName": "MP Tracker",
+  "appName": "SFXBM",
   "webDir": "dist-app",
-  "server": { "androidScheme": "http", "cleartext": true },
-  "android": { "allowMixedContent": true, "captureInput": true }
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true,
+    "allowNavigation": [
+      "*"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true
+  }
 }
