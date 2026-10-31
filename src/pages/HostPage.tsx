@@ -5,7 +5,7 @@
  * The face engine and the camera load once and stay on for the whole app run, whatever tab the operator is on.
  */
 import { useEffect, useRef, useState } from 'react';
-import { FACE_QUALITY, describeAt, distance, focusOn, loadFaceEngine, readiness, startCamera, stopCamera, track, type Tracked } from '../lib/face';
+import { faceCrop, focusOn, loadFaceEngine, readiness, startCamera, stopCamera, track, type Tracked } from '../lib/face';
 import { lastLink } from '../lib/native';
 
 interface Slot { x: number; y: number; w: number; h: number }
@@ -77,15 +77,15 @@ export default function HostPage() {
           await tr.applyConstraints({ advanced: [{ focusMode: 'continuous' }] } as unknown as MediaTrackConstraints);
       } catch { /* optional */ }
     };
-    const ask = (descriptor: number[]) => new Promise<boolean>((res) => {
+    const ask = (image: string) => new Promise<boolean>((res) => {
       st.current.pend = res;
-      frame.current?.contentWindow?.postMessage({ sfxbm: 'face', descriptor }, origin);
+      frame.current?.contentWindow?.postMessage({ sfxbm: 'face', image }, origin);
       setTimeout(() => { if (st.current.pend === res) { st.current.pend = null; res(false); } }, 12000);
     });
     (async () => {
       try { await Promise.all([loadFaceEngine(), open()]); }
       catch (e) { if (alive) setHint(`Camera error: ${e instanceof Error ? e.message : String(e)}`); return; }
-      let lastMiss: { d: number[]; at: number } | null = null;
+      let lastMiss: { at: number } | null = null;
       let lastTime = -1; let frozen = Date.now(); let focusAt = 0; let errors = 0;
       while (alive) {
         const v = video.current;
@@ -101,15 +101,13 @@ export default function HostPage() {
         if (msg || !t) { await sleep(t ? 40 : 90); continue; }
         if (Date.now() < st.current.cool) { setHint(''); await sleep(150); continue; }
         if (Date.now() - focusAt > 1500) { focusAt = Date.now(); focusOn(stream, t, true); }
-        let desc: Float32Array | null = null;
-        try { desc = await describeAt(v, t.box); } catch { await sleep(100); continue; }
-        if (!desc || !alive || !st.current.active) continue;
-        const d = Array.from(desc);
-        if (lastMiss && Date.now() - lastMiss.at < 1500 && distance(lastMiss.d, d) < FACE_QUALITY.consistent) { await sleep(200); continue; }
+        const image = faceCrop(v, t.box);
+        if (!image || !alive || !st.current.active) continue;
+        if (lastMiss && Date.now() - lastMiss.at < 900) { await sleep(200); continue; }
         setHint('Checking…');
-        const ok = await ask(d);
+        const ok = await ask(image);
         if (ok) { st.current.active = false; setShown(false); drawBox(null, 'idle'); setHint(''); }     // the page now shows the employee; it re-activates us after the asset is scanned
-        else { lastMiss = { d, at: Date.now() }; await sleep(600); }
+        else { lastMiss = { at: Date.now() }; await sleep(600); }
       }
     })();
     return () => { alive = false; stopCamera(stream); };

@@ -9,7 +9,7 @@ import { cameraProblem, loadFaceEngine, startCamera, stopCamera } from '../lib/f
 import { Button } from './ui';
 import { CameraStage, FullResult, playSound, useFaceCapture, type CaptureOutcome, type KioskResult } from './FaceKiosk';
 
-export type ScanId = { scan_value?: string; descriptor?: number[] };
+export type ScanId = { scan_value?: string; image?: string };
 export interface ScanReply { matched?: boolean; reason?: string; repeat?: boolean; result: KioskResult; employee?: { id: string; code: string; name: string; has_photo?: boolean } | null }
 type Mode = 'face' | 'qr' | 'manual';
 type Facing = 'user' | 'environment';
@@ -77,8 +77,8 @@ export function ScanPanel({ submit, active, buttonLabel, onResult }: {
   }, []);
 
   /* Face scan: result 1 s, then the next MP (the same MP again shows the server's "already" answer) */
-  const onFace = useCallback(async (descriptor: number[]): Promise<CaptureOutcome> => {
-    const r = await send({ descriptor }, false);
+  const onFace = useCallback(async (image: string): Promise<CaptureOutcome> => {
+    const r = await send({ image }, false);
     return { matched: !!r?.employee };      // not recognised -> short popup, quick retry
   }, [send]);
   const onFaceReset = useCallback(() => setView((v) => { if (v?.photo) URL.revokeObjectURL(v.photo); return null; }), []);

@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { del, get, imageUrl, post } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
-import { analyse, cameraProblem, describeAt, distance, loadFaceEngine, snapshot, startCamera, stopCamera, track, type Tracked } from '../lib/face';
+import { cameraProblem, frameJpeg, loadFaceEngine, startCamera, stopCamera, toJpeg, track, type Tracked } from '../lib/face';
 import { MESH_IDX, delaunay, drawMesh } from '../lib/faceMesh';
 import { fmtDateTime } from '../lib/format';
 import { Button, ErrorBox, Loading, Modal, useAction } from '../components/ui';
@@ -73,22 +73,21 @@ export default function FaceEnrollPage() {
   );
 }
 
-/* Enrolment: the MP looks straight at the camera; 5 samples are taken automatically (face found anywhere,
+/* Enrolment: the MP looks straight at the camera; 3 clear photos are taken automatically and the SERVER checks them strictly (one frontal, sharp, well-lit face) - anything less is rejected (face found anywhere,
    cut out and enlarged, same as the gate), shown on a round view with the face mesh. */
-const NEED = 5;
+const NEED = 3;
 const RING = NEED;
 
 export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | 'employee_code' | 'full_name'>; onClose: () => void; onSaved: () => void }) {
-  const { busy, run } = useAction();
   const video = useRef<HTMLVideoElement>(null);
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
   const [status, setStatus] = useState('Loading…');
   const [capturing, setCapturing] = useState(false);
-  const [samples, setSamples] = useState<number[][]>([]);
+  const [samples, setSamples] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
   const [ring, setRing] = useState<boolean[]>(() => Array(RING).fill(false));
   const [front, setFront] = useState(false);
   const mesh = useRef<HTMLCanvasElement>(null);
-  const [photo, setPhoto] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const problem = cameraProblem();
@@ -108,7 +107,7 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
         stream = await startCamera(video.current, facing);
         setStatus('Ready — Start capture dabaiye');
       } catch (e) { setErr(e instanceof Error ? e.message : String(e)); return; }
-      let got: Float32Array[] = [];
+      let got: string[] = [];
       let last = 0;
       let tris: [number, number, number][] | null = null;
       while (alive) {
@@ -125,17 +124,15 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
         let msg = '';
         if (!t) msg = 'Chehra camera mein laaiye';
         else if (t.others) msg = 'Sirf MP camera ke saamne ho';
-        else if (t.box.width < 70) msg = 'Thoda paas aaiye';
-        else if (Math.abs(t.yaw) > 0.3 || Math.abs(t.roll) > 18) msg = 'Seedha camera ki taraf dekhiye';
+        else if (t.box.width < 110) msg = 'Thoda paas aaiye';
+        else if (Math.abs(t.yaw) > 0.18 || Math.abs(t.roll) > 10 || t.pitch < 0.3) msg = 'Seedha camera ki taraf dekhiye';
+        else if (t.box.x < 0 || t.box.y < 0 || t.box.x + t.box.width > t.vw || t.box.y + t.box.height > t.vh) msg = 'Pura chehra camera mein laaiye';
         if (msg || !t) { setStatus(`${msg} (${got.length}/${NEED})`); await sleep(70); continue; }
-        if (Date.now() - last < 300) { await sleep(60); continue; }
-        const d: Float32Array | null = await describeAt(v, t.box).catch(() => null);
-        if (!alive) break;
-        if (!d) continue;
-        if (got.length && distance(got[0], d) > 0.55) { got = []; setStatus('Chehra badal gaya — dobara'); setRing(Array(RING).fill(false)); continue; }
-        got.push(d); last = Date.now();
-        if (got.length === 1) setPhoto(snapshot(v, 360, 0.8));
-        setSamples(got.map((x) => Array.from(x)));
+        if (Date.now() - last < 700) { await sleep(60); continue; }
+        const shot = frameJpeg(v);
+        if (!shot) continue;
+        got.push(shot); last = Date.now();
+        setSamples([...got]);
         setRing(Array.from({ length: RING }, (_, i) => i < got.length)); setFront(true);
         if (got.length >= NEED) {
           capRef.current = false; setCapturing(false);
@@ -150,14 +147,8 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
 
   const fromFile = async (file: File) => {
     setErr(null);
-    const url = URL.createObjectURL(file);
-    try {
-      await loadFaceEngine();
-      const img = new Image(); img.src = url; await img.decode();
-      const fr = await analyse(img, true);
-      if (fr.count !== 1 || !fr.descriptor) { setErr(fr.count > 1 ? 'Photo mein ek hi vyakti hona chahiye' : 'Photo mein chehra nahi mila'); return; }
-      setSamples([Array.from(fr.descriptor)]); setPhoto(snapshot(img, 360, 0.8)); setStatus('Photo loaded — live capture is more accurate');
-    } finally { URL.revokeObjectURL(url); }
+    try { setSamples([await toJpeg(file)]); setStatus('Photo loaded — Save par server isko strictly check karega'); }
+    catch { setErr('Ye photo khul nahi paayi'); }
   };
 
   // Paste a photo (Ctrl+V anywhere in this window, or the "Paste photo" button) — copied from WhatsApp / gallery / web
@@ -187,14 +178,19 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
   };
 
   const save = async () => {
-    const r = await run(() => post('face/enroll', { employee_id: row.id, descriptors: samples, photo, consent }), `${row.full_name} enrolled`);
-    if (r) onSaved();
+    setErr(null); setSaving(true);
+    try {
+      const r = await post<{ ok: boolean; message?: string }>('face/enroll', { employee_id: row.id, photos: samples, consent });
+      if (r.ok === false) { alert(r.message ?? 'Reject'); onSaved(); return; }      // already enrolled for someone else: both removed
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }       // e.g. "Photo reject: Photo dhundhli (blur) hai"
+    finally { setSaving(false); }
   };
 
   return (
     <Modal title={`Face enrolment — ${row.full_name} (${row.employee_code})`} onClose={onClose} wide footer={<>
       <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" busy={busy} disabled={!samples.length || !consent || capturing} onClick={() => void save()}>Save enrolment</Button>
+      <Button variant="primary" busy={saving} disabled={!samples.length || !consent || capturing} onClick={() => void save()}>Save enrolment</Button>
     </>}>
       {problem ? <ErrorBox error="Camera is blocked on this http link. Use the HTTPS link or the Chrome flag described in the README (Face kiosk), or upload a photo below." /> : <>
         <div className="fid">
@@ -206,7 +202,7 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
         </div>
         <div className="fid-hint">{status}<span className="muted small"> · {samples.length}/{NEED}</span></div>
         <div className="row gap wrap">
-          <Button variant="primary" disabled={capturing} onClick={() => { setSamples([]); setPhoto(null); setRing(Array(RING).fill(false)); setFront(false); setCapturing(true); }}>{samples.length ? 'Retake' : 'Start capture'}</Button>
+          <Button variant="primary" disabled={capturing} onClick={() => { setSamples([]); setRing(Array(RING).fill(false)); setFront(false); setCapturing(true); }}>{samples.length ? 'Retake' : 'Start capture'}</Button>
           <Button variant="ghost" onClick={() => setFacing(facing === 'user' ? 'environment' : 'user')}>Switch camera</Button>
         </div>
       </>}
@@ -218,7 +214,7 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
           Photo copy karke yahan paste kariye (Ctrl+V / long-press → Paste)</div>
       </div>
       <label className="small muted">Ya file se: <input type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) void fromFile(f); }} /></label>
-      {photo && <div className="row gap"><img className="face-thumb" src={photo} alt="" /><span className="small muted">{samples.length} sample(s) ready</span></div>}
+      {samples.length > 0 && <div className="row gap"><img className="face-thumb" src={samples[0]} alt="" /><span className="small muted">{samples.length} photo(s) ready</span></div>}
     </Modal>
   );
 }

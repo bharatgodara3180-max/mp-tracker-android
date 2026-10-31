@@ -21,7 +21,7 @@ const QUEUE_KEY = 'mp-face-queue';
 const FAILED_KEY = 'mp-face-failed';
 const MAX_SERVER_ATTEMPTS = 5;   // server keeps erroring on one scan -> park it, don't block the rest
 
-interface FaceScan { clientEventId: string; capturedAt: string; descriptor: number[]; snapshot: string | null; attempts?: number; lastError?: string }
+interface FaceScan { clientEventId: string; capturedAt: string; image: string; snapshot: string | null; attempts?: number; lastError?: string }
 interface ScanReply {
   matched: boolean; reason?: string | null; direction?: 'IN' | 'OUT'; processing_status?: string; repeat?: boolean;
   result?: KioskResult; employee?: { id: string; code: string; name: string; has_photo?: boolean } | null;
@@ -60,7 +60,7 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
   const sendOne = useCallback(async (s: FaceScan): Promise<{ ok: true; reply: ScanReply } | { ok: false; retry: boolean; network: boolean; error: string }> => {
     try {
       const reply = await post<ScanReply>('face/scan', {
-        device_code: device, descriptor: s.descriptor, snapshot: s.snapshot, client_event_id: s.clientEventId, captured_at: s.capturedAt });
+        device_code: device, image: s.image, snapshot: s.snapshot, client_event_id: s.clientEventId, captured_at: s.capturedAt });
       return { ok: true, reply };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -102,8 +102,8 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
     note: error,
   });
 
-  const onCapture = useCallback(async (descriptor: number[], snap: string | null): Promise<CaptureOutcome | void> => {
-    const scan: FaceScan = { clientEventId: uuid(), capturedAt: new Date().toISOString(), descriptor, snapshot: snap };
+  const onCapture = useCallback(async (image: string, snap: string | null): Promise<CaptureOutcome | void> => {
+    const scan: FaceScan = { clientEventId: uuid(), capturedAt: new Date().toISOString(), image, snapshot: snap };
     if (store.all().length) await flush();             // older offline scans go first (order matters for the rules)
     if (store.all().length) {
       store.save([...store.all(), scan]); setPending(store.all().length);

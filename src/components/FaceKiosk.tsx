@@ -3,7 +3,7 @@
  * camera + recognition loop, full-screen result, sounds, camera help.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { BlinkDetector, FACE_QUALITY, KIOSK_FACE, describeAt, distance, focusOn, loadFaceEngine, mean, readiness, snapshot, startCamera, stopCamera, track, type Tracked } from '../lib/face';
+import { BlinkDetector, KIOSK_FACE, faceCrop, focusOn, loadFaceEngine, readiness, startCamera, stopCamera, track, type Tracked } from '../lib/face';
 import { Button } from './ui';
 
 export interface KioskResult { label: string; sub?: string; tone: 'green' | 'blue' | 'red' | 'amber'; alarm?: boolean }
@@ -43,7 +43,7 @@ const frame = () => new Promise<void>((r) => { if (typeof requestAnimationFrame 
  */
 export function useFaceCapture(opts: {
   enabled: boolean; facing: 'user' | 'environment'; requireBlink: boolean;
-  onCapture: (descriptor: number[], snap: string | null) => Promise<void | CaptureOutcome>; onReset: () => void;
+  onCapture: (image: string, snap: string | null) => Promise<void | CaptureOutcome>; onReset: () => void;
   /** Fixed result time (ms) instead of "until the person walks away". */
   resultMs?: number;
 }) {
@@ -110,9 +110,7 @@ export function useFaceCapture(opts: {
         return;
       }
       const blink = new BlinkDetector();
-      let samples: { d: Float32Array; at: number }[] = [];
-      let snap: string | null = null;
-      let lastMiss: { d: number[]; at: number } | null = null;     // last "not matched"
+      let lastMiss: { at: number } | null = null;     // last "not matched"
       let prev: { x: number; y: number } | null = null;
       let steady = 0; let errors = 0; let focusAt = 0;
       let lastTime = -1; let frozenSince = Date.now();
@@ -121,7 +119,7 @@ export function useFaceCapture(opts: {
         const v = video.current;
         if (!v || document.hidden) { await sleep(300); continue; }
         if (ref.current.facing !== facing) {          // camera switched
-          drawBox(null, 'idle'); samples = []; steady = 0; prev = null; setHint('Camera badal raha hai…');
+          drawBox(null, 'idle'); steady = 0; prev = null; setHint('Camera badal raha hai…');
           try { await openCamera(); } catch { await sleep(800); }
           frozenSince = Date.now(); continue;
         }
@@ -140,7 +138,7 @@ export function useFaceCapture(opts: {
 
         let msg = readiness(t);
         const placed = !msg;          // right distance / pose -> green box (even while waiting to be steady)
-        if (!t) { blink.reset(); samples = []; } else blink.push(t.ear);
+        if (!t) { blink.reset(); } else blink.push(t.ear);
         if (!msg && t) {
           // steady = moved less than a quarter of its own face width (works near and far)
           const c = { x: (t.box.x + t.box.width / 2) / t.box.width, y: (t.box.y + t.box.height / 2) / t.box.width };
@@ -152,41 +150,28 @@ export function useFaceCapture(opts: {
         drawBox(t, placed ? 'ok' : t ? 'bad' : 'idle');
 
         if (msg) {
-          samples = []; snap = null; setProgress(0); setHint(msg);
+          setProgress(0); setHint(msg);
           await frame(); continue;
         }
         if (t && Date.now() - focusAt > 1500) { focusAt = Date.now(); focusOn(stream, t, facing === 'user'); }
 
-        // ready: recognise (heavier network, only now)
-        let desc: Float32Array | null = null;
-        try { desc = t ? await describeAt(v, t.box) : null; } catch { await sleep(150); continue; }
-        if (!alive) break;
-        if (!desc) { samples = []; await frame(); continue; }
+        // ready: cut the face out and send the picture - the server recognises it
+        const shot = faceCrop(v, t!.box);
+        if (!shot) { await frame(); continue; }
+        blink.reset(); setProgress(0);
         const now = Date.now();
-        samples = samples.filter((x) => now - x.at < 3000);
-        if (samples.length && distance(samples[0].d, desc) > FACE_QUALITY.consistent) samples = [];
-        samples.push({ d: desc, at: now });
-        if (samples.length === 1) snap = snapshot(v, 240, 0.6);    // small proof photo -> quick upload
-        setProgress(Math.min(samples.length, KIOSK_SAMPLES));
-        if (samples.length < KIOSK_SAMPLES) { setHint('Pehchaan ho rahi hai…'); continue; }
-
-        const d = mean(samples.map((x) => x.d));
-        const shot = snap ?? snapshot(v, 240, 0.6);
-        samples = []; snap = null; blink.reset(); setProgress(0);
-        if (lastMiss && now - lastMiss.at < 1500 && distance(lastMiss.d, d) < FACE_QUALITY.consistent) {
-          setHint('Match nahi hua — seedha aur paas dekhiye'); await sleep(250); continue;   // don't spam the same unknown face
-        }
+        if (lastMiss && now - lastMiss.at < 900) { setHint('Match nahi hua — seedha aur paas dekhiye'); await sleep(250); continue; }   // don't spam an unknown face
 
         setPhase('busy');
         let out: void | CaptureOutcome = undefined;
         try {
-          out = await Promise.race([ref.current.onCapture(d, shot),
+          out = await Promise.race([ref.current.onCapture(shot, shot),
             sleep(SEND_TIMEOUT_MS).then(() => { throw new Error('timeout'); })]);
         } catch { /* the page shows its own error */ }
         if (!alive) return;
         setPhase('result'); drawBox(null, 'idle');
         const matched = !out || out.matched;
-        if (!matched) lastMiss = { d, at: Date.now() };
+        if (!matched) lastMiss = { at: Date.now() };
         const hold = out?.holdMs ?? (matched ? ref.current.resultMs : NOT_MATCHED_MS);
         if (hold) { await sleep(hold); }
         else {   // gate: keep the result until the person moves away (min 1.5 s, max 6 s)

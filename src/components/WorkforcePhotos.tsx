@@ -8,7 +8,7 @@
  */
 import { useMemo, useRef, useState } from 'react';
 import { ApiError, post } from '../lib/api';
-import { analyse, loadFaceEngine, snapshot } from '../lib/face';
+import { toJpeg } from '../lib/face';
 import { downloadCsv } from '../lib/export';
 import { Button, Modal } from './ui';
 
@@ -113,9 +113,7 @@ export function WorkforcePhotosModal({ employees, enrolled, onClose, onDone }: {
 
   const start = async () => {
     if (!photos) return;
-    setRunning(true); stop.current = false; setMsg('Face models load ho rahe hain…');
-    await loadFaceEngine();
-    setMsg(null);
+    setRunning(true); stop.current = false; setMsg(null);
     const out: Row[] = [];
     const byId = new Map<string, WfEmp[]>();
     pending.forEach((e) => { const k = wfId(e)!; byId.set(k, [...(byId.get(k) ?? []), e]); });
@@ -128,13 +126,10 @@ export function WorkforcePhotosModal({ employees, enrolled, onClose, onDone }: {
         try {
           // a link (Google Storage) is downloaded by the MP Tracker server; the browser may not read it directly
           const src = data.startsWith('data:') ? data : (await post<{ data: string }>('admin/fetch-photo', { url: data })).data;
-          const img = new Image(); img.src = src; await img.decode();
-          const fr = await analyse(img, true);
-          if (fr.count !== 1 || !fr.descriptor) r.detail = fr.count > 1 ? 'Photo mein ek se zyada chehre' : 'Photo mein chehra nahi mila';
-          else {
-            await post('face/enroll', { employee_id: e.id, descriptors: [Array.from(fr.descriptor)], photo: snapshot(img, 360, 0.8), consent: true });
-            r.result = 'OK';
-          }
+          const jpeg = await toJpeg(src);
+          const res = await post<{ ok: boolean; message?: string }>('face/enroll', { employee_id: e.id, photos: [jpeg], consent: true });
+          if (res.ok === false) r.detail = res.message ?? 'Reject';       // e.g. face already enrolled for someone else (both removed)
+          else r.result = 'OK';
         } catch (err) { r.detail = err instanceof ApiError || err instanceof Error ? err.message : String(err); }
         out.push(r); setRows([...out]);
       }

@@ -28,7 +28,6 @@ export function loadFaceEngine(): Promise<typeof FaceApi> {
       await Promise.all([
         f.nets.tinyFaceDetector.loadFromUri(base),
         f.nets.faceLandmark68Net.loadFromUri(base),
-        f.nets.faceRecognitionNet.loadFromUri(base),
       ]);
       // warm-up: the first run of each network compiles GPU shaders (slow); do it now, not on the first person
       try {
@@ -36,7 +35,6 @@ export function loadFaceEngine(): Promise<typeof FaceApi> {
         const g = c.getContext('2d'); if (g) { g.fillStyle = '#888'; g.fillRect(0, 0, 160, 160); }
         await f.detectAllFaces(c, new f.TinyFaceDetectorOptions({ inputSize: DETECT_SIZE, scoreThreshold: 0.5 }));
         await f.detectFaceLandmarks(c);
-        await f.computeFaceDescriptor(c);
       } catch { /* warm-up is best effort */ }
       api = f;
       return f;
@@ -248,3 +246,44 @@ export function focusOn(stream: MediaStream | null, t: Tracked, mirror: boolean)
 }
 /** Consistent samples averaged per scan (2 = fast, still steady). */
 export const SAMPLES_NEEDED = 2;
+
+
+/** The server recognises the face (ArcFace): the tablet only finds it and sends a small picture of it (face + margin, ~320 px wide). */
+const cropCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+export function faceCrop(video: HTMLVideoElement, box: Box, quality = 0.85): string | null {
+  if (!cropCanvas) return null;
+  const m = 0.5;
+  const sx = Math.max(0, box.x - box.width * m); const sy = Math.max(0, box.y - box.height * m * 1.1);
+  const ex = Math.min(video.videoWidth, box.x + box.width * (1 + m)); const ey = Math.min(video.videoHeight, box.y + box.height * (1 + m * 0.9));
+  const sw = ex - sx; const sh = ey - sy;
+  if (sw < 20 || sh < 20) return null;
+  const sc = Math.min(1.5, 320 / sw);
+  cropCanvas.width = Math.round(sw * sc); cropCanvas.height = Math.round(sh * sc);
+  const g = cropCanvas.getContext('2d');
+  if (!g) return null;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(video, sx, sy, sw, sh, 0, 0, cropCanvas.width, cropCanvas.height);
+  return cropCanvas.toDataURL('image/jpeg', quality);
+}
+
+/** Whole video frame as a JPEG (enrolment: the server checks the photo itself). */
+export function frameJpeg(video: HTMLVideoElement, maxSide = 1280, quality = 0.92): string | null {
+  const w = video.videoWidth; const h = video.videoHeight;
+  if (!w || !h) return null;
+  const sc = Math.min(1, maxSide / Math.max(w, h));
+  const c = document.createElement('canvas'); c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+  c.getContext('2d')?.drawImage(video, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', quality);
+}
+
+/** Any picture (file / data URL / link already downloaded) -> JPEG data URL, at most `maxSide` px. */
+export async function toJpeg(src: Blob | string, maxSide = 1600, quality = 0.92): Promise<string> {
+  const url = typeof src === 'string' ? src : URL.createObjectURL(src);
+  try {
+    const img = new Image(); img.src = url; await img.decode();
+    const sc = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * sc); c.height = Math.round(img.naturalHeight * sc);
+    c.getContext('2d')?.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', quality);
+  } finally { if (typeof src !== 'string') URL.revokeObjectURL(url); }
+}
