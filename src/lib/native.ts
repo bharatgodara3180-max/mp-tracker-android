@@ -96,3 +96,17 @@ export function openLinkNow(link: string) {
   try { sessionStorage.removeItem(RUN_KEY); } catch { /* ignore */ }
   window.location.href = link;
 }
+
+/** After "Sign out" go to the SFXBM login page (<host>/ASSETS/go) when this MP Tracker sits behind the same server as Asset Desk (/MP/). null = stay on MP's own login. */
+export function sfxbmLoginUrl(): string | null {
+  const path = '/ASSETS/go?out=1';
+  try {
+    if (isNativeApp()) {
+      const s = appServer();
+      if (!s) return null;
+      const u = new URL(s);
+      return /^\/mp\/?$/i.test(u.pathname) ? `${u.origin}${path}` : null;
+    }
+    return /^\/mp(\/|$)/i.test(window.location.pathname) ? path : null;
+  } catch { return null; }
+}
