@@ -139,6 +139,11 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
         if (Date.now() - last < 700) { await sleep(60); continue; }
         const shot = frameJpeg(v);
         if (!shot) continue;
+        try {                                                   // the server's own strict check on this exact picture, before it is kept
+          const chk = await post<{ ok: boolean; reason: string }>('face/check-photo', { image: shot });
+          if (!alive) break;
+          if (!chk.ok) { setStatus(`${chk.reason} (${got.length}/${NEED})`); last = Date.now() - 300; await sleep(200); continue; }
+        } catch { setStatus('Server se check nahi ho paaya - network dekhiye'); await sleep(800); continue; }
         got.push(shot); last = Date.now();
         setSamples([...got]);
         setRing(Array.from({ length: RING }, (_, i) => i < got.length)); setFront(true);

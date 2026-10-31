@@ -119,6 +119,7 @@ function Header() {
   return (
     <header className="topbar">
       <div className="brand"><span className="logo">MP</span><span>Control Tower</span></div>
+      <Button size="sm" variant="ghost" className="logout-btn" onClick={() => signOut()}>Logout</Button>
       <button className="icon-btn nav-toggle" onClick={() => setNavOpen(!navOpen)} aria-label="Menu">☰</button>
       <nav className={navOpen ? 'open' : ''} onClick={() => setNavOpen(false)}>
         {NAV.filter((n) => profile && !n.hidden && n.roles.includes(profile.role)).map((n) => (

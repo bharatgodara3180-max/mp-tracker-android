@@ -22,6 +22,7 @@ export default function HostPage() {
   const [hint, setHint] = useState('');
   const [needCam, setNeedCam] = useState(false);
   const [shown, setShown] = useState(false);
+  const [status, setStatus] = useState<{ t: string; bad?: boolean } | null>(null);   // camera status, visible even while the camera box is hidden
   const st = useRef({ active: false, cool: 0, pend: null as null | ((m: boolean) => void) });
 
   /* ---------- messages from the Asset Desk page ---------- */
@@ -30,7 +31,7 @@ export default function HostPage() {
       if (e.origin !== origin) return;
       const d = e.data as { sfxbm?: string; [k: string]: unknown } | null;
       if (!d || typeof d !== 'object' || !d.sfxbm) return;
-      if (d.sfxbm === 'ready') setNeedCam(true);
+      if (d.sfxbm === 'ready') { setNeedCam(true); try { (e.source as Window | null)?.postMessage({ sfxbm: 'hello' }, e.origin); } catch { /* ignore */ } }
       else if (d.sfxbm === 'cam') {
         const was = st.current.active;
         st.current.active = !!d.active; setShown(!!d.active);
@@ -50,6 +51,7 @@ export default function HostPage() {
   /* ---------- camera + face loop (starts when the operator page says it is ready; then never stops) ---------- */
   useEffect(() => {
     if (!needCam) return;
+    setStatus({ t: 'Camera aur face module shuru ho rahe hain…' });
     let alive = true; let stream: MediaStream | null = null;
     const drawBox = (t: Tracked | null, tone: 'idle' | 'ok' | 'bad') => {
       const el = boxRef.current; const v = video.current;
@@ -84,7 +86,13 @@ export default function HostPage() {
     });
     (async () => {
       try { await Promise.all([loadFaceEngine(), open()]); }
-      catch (e) { if (alive) setHint(`Camera error: ${e instanceof Error ? e.message : String(e)}`); return; }
+      catch (e) {
+        if (!alive) return;
+        const m = e instanceof Error ? `${e.name} ${e.message}` : String(e);
+        setStatus({ bad: true, t: /Permission|NotAllowed|denied/i.test(m) ? 'Camera permission nahi mili - phone Settings > Apps > SFXBM > Permissions me Camera allow karo' : `Camera / face module error: ${m}` });
+        return;
+      }
+      setStatus({ t: 'Camera on ✓' }); setTimeout(() => setStatus((x) => (x && !x.bad ? null : x)), 3000);
       let lastMiss: { at: number } | null = null;
       let lastTime = -1; let frozen = Date.now(); let focusAt = 0; let errors = 0;
       while (alive) {
@@ -121,6 +129,7 @@ export default function HostPage() {
         <div ref={boxRef} className="face-box" data-tone="idle" />
         {hint && <div className="face-hint">{hint}</div>}
       </div>
+      {status && <div className={`host-status ${status.bad ? 'bad' : ''}`}>{status.t}</div>}
     </div>
   );
 }
