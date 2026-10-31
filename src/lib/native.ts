@@ -96,6 +96,11 @@ export const BOOT_AUTO = typeof window !== "undefined" && isNativeApp() && takeA
 /** Open the link inside the app. The Android Back button comes back to the empty link box. */
 export function openLinkNow(link: string) {
   try { sessionStorage.removeItem(RUN_KEY); } catch { /* ignore */ }
+  if (isNativeApp() && !isMpLink(link)) {          // Asset Desk: shown in the app's own frame so the camera stays on across its tabs
+    try { sessionStorage.setItem('sfxbm-host', link); } catch { /* ignore */ }
+    window.location.hash = '#/host';
+    return;
+  }
   window.location.href = link;
 }
 

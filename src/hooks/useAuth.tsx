@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { get, onUnauthorized, post, token } from '../lib/api';
 import type { AppRole, Profile } from '../lib/types';
-import { sfxbmLoginUrl } from '../lib/native';
+import { isNativeApp, openLinkNow, sfxbmLoginUrl } from '../lib/native';
 
 interface AuthCtx {
   profile: Profile | null;
@@ -22,7 +22,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const signOut = useCallback(() => { token.set(null); setProfile(null); const to = sfxbmLoginUrl(); if (to) window.location.replace(to); }, []);
+  const signOut = useCallback(() => { token.set(null); setProfile(null); const to = sfxbmLoginUrl(); if (to) { if (isNativeApp()) openLinkNow(to); else window.location.replace(to); } }, []);
 
   useEffect(() => {
     const off = onUnauthorized(() => { token.set(null); setProfile(null); });

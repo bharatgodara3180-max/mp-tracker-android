@@ -23,7 +23,7 @@ const FaceEnrollPage = lazy(() => import('./pages/FaceEnrollPage'));
 const SupervisorApp = lazy(() => import('./pages/SupervisorApp'));
 const DcGatePage = lazy(() => import('./pages/DcGatePage'));
 const AppSetupPage = lazy(() => import('./pages/AppSetupPage'));
-const AssetIssuePage = lazy(() => import('./pages/AssetIssuePage'));
+const HostPage = lazy(() => import('./pages/HostPage'));
 const SfxMpEntry = lazy(() => import('./pages/SfxMpEntry'));
 
 // Dashboard: admin (full control) and ops_manager (view only + report downloads).
@@ -67,7 +67,7 @@ function Shell() {
   // SFXBM: every fresh app start begins with the empty link box (a gate tablet, set up by its gate link, still starts straight on its gate screen)
   migrateOnce();
   // built-in screens opened by the SFXBM login page (/ASSETS/go) inside the app
-  if (isNativeApp() && loc.pathname === '/asset-issue') return <Suspense fallback={wait}><AssetIssuePage /></Suspense>;
+  if (isNativeApp() && loc.pathname === '/host') return <Suspense fallback={wait}><HostPage /></Suspense>;
   if (isNativeApp() && loc.pathname === '/sfx-mp') return <Suspense fallback={wait}><SfxMpEntry /></Suspense>;
   // cold start with a saved MP link: go straight in, the link box is never shown
   if (BOOT_AUTO && appServer() && appMode() && !linkChosenThisRun()) markLinkChosen();

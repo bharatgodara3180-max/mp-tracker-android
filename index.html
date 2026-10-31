@@ -25,7 +25,7 @@
           fetch(u, { mode: 'no-cors', cache: 'no-store', signal: ctl.signal }).then(function () {
             clearTimeout(t);
             sessionStorage.setItem('sfxbm-auto', '1');
-            window.location.href = u;
+            sessionStorage.setItem('sfxbm-host', u); window.location.hash = '#/host';   // shown in the app's own frame (camera stays on)
           }).catch(function () { clearTimeout(t); window.__sfxbmFailed = true; window.__sfxbmBusy = false; });
         } catch (e) { window.__sfxbmBusy = false; }
       })();
