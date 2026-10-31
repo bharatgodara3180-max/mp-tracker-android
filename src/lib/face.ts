@@ -287,3 +287,41 @@ export async function toJpeg(src: Blob | string, maxSide = 1600, quality = 0.92)
     return c.toDataURL('image/jpeg', quality);
   } finally { if (typeof src !== 'string') URL.revokeObjectURL(url); }
 }
+
+
+/** Same light / sharpness rules the server applies to an enrolment photo, checked on the live picture BEFORE it is taken. '' = good. */
+const qCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+export function lightHint(video: HTMLVideoElement, box: Box): string {
+  if (!qCanvas) return '';
+  const m = 0.08;
+  const sx = Math.max(0, box.x - box.width * m); const sy = Math.max(0, box.y - box.height * m);
+  const sw = Math.min(video.videoWidth - sx, box.width * (1 + 2 * m)); const sh = Math.min(video.videoHeight - sy, box.height * (1 + 2 * m));
+  if (sw < 20 || sh < 20) return '';
+  qCanvas.width = 112; qCanvas.height = 112;
+  const g = qCanvas.getContext('2d', { willReadFrequently: true });
+  if (!g) return '';
+  g.drawImage(video, sx, sy, sw, sh, 0, 0, 112, 112);
+  const d = g.getImageData(0, 0, 112, 112).data;
+  const y = new Float32Array(112 * 112);
+  let sum = 0; let left = 0; let right = 0;
+  for (let i = 0; i < y.length; i++) {
+    const v = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+    y[i] = v; sum += v;
+    if (i % 112 < 56) left += v; else right += v;
+  }
+  const mean = sum / y.length;
+  let varc = 0; for (let i = 0; i < y.length; i++) varc += (y[i] - mean) ** 2;
+  const std = Math.sqrt(varc / y.length);
+  let lap = 0; let lapSq = 0; let n = 0;
+  for (let r = 1; r < 111; r++) for (let c = 1; c < 111; c++) {
+    const i = r * 112 + c; const l = y[i - 1] + y[i + 1] + y[i - 112] + y[i + 112] - 4 * y[i];
+    lap += l; lapSq += l * l; n++;
+  }
+  const sharp = lapSq / n - (lap / n) ** 2;
+  if (mean < 75) return 'Roshni kam hai (andhera) - roshni ki taraf aaiye';
+  if (mean > 190) return 'Bahut tez roshni - seedhi dhoop / light se hatiye';
+  if (std < 30) return 'Roshni / contrast kam hai';
+  if (Math.abs(left - right) / (112 * 56) > 35) return 'Ek taraf se roshni zyada hai - barabar roshni me aaiye';
+  if (sharp < 55) return 'Photo dhundhli hai - tablet hilao mat, thoda ruko';
+  return '';
+}

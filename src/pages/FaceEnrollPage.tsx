@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { del, get, imageUrl, post } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
-import { cameraProblem, frameJpeg, loadFaceEngine, startCamera, stopCamera, toJpeg, track, type Tracked } from '../lib/face';
+import { cameraProblem, frameJpeg, lightHint, loadFaceEngine, startCamera, stopCamera, toJpeg, track, type Tracked } from '../lib/face';
 import { MESH_IDX, delaunay, drawMesh } from '../lib/faceMesh';
 import { fmtDateTime } from '../lib/format';
 import { Button, ErrorBox, Loading, Modal, useAction } from '../components/ui';
@@ -93,6 +93,7 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
   const problem = cameraProblem();
   const capRef = useRef(false);
   capRef.current = capturing;
+  const retake = useRef(0);
 
   useEffect(() => {
     if (problem) return;
@@ -108,19 +109,24 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
         setStatus('Ready — Start capture dabaiye');
       } catch (e) { setErr(e instanceof Error ? e.message : String(e)); return; }
       let got: string[] = [];
+      let seenRetake = retake.current;
       let last = 0;
       let tris: [number, number, number][] | null = null;
       while (alive) {
         const v: HTMLVideoElement | null = video.current;
         const cv = mesh.current;
         if (!v) { await sleep(150); continue; }
+        if (seenRetake !== retake.current) { seenRetake = retake.current; got = []; }      // Retake starts from zero
         if (!capRef.current && got.length && got.length < NEED) got = [];
         let t: Tracked | null = null;
         try { t = await track(v); } catch { await sleep(150); continue; }
         if (!alive) break;
         if (t && !tris) tris = delaunay(MESH_IDX.map((i) => t!.pts[i]));
         if (cv) drawMesh(cv, v, t?.pts ?? null, tris, facing === 'user', capRef.current && got.length ? 'rgba(47,191,113,.95)' : 'rgba(255,255,255,.85)');
-        if (!capRef.current) { await sleep(70); continue; }
+        if (!capRef.current) {
+          if (got.length < NEED) setStatus(!t ? 'Chehra camera mein laaiye' : (lightHint(v, t.box) || 'Ready — Start capture dabaiye'));
+          await sleep(180); continue;
+        }
         let msg = '';
         if (!t) msg = 'Chehra camera mein laaiye';
         else if (t.others) msg = 'Sirf MP camera ke saamne ho';
@@ -128,6 +134,8 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
         else if (Math.abs(t.yaw) > 0.18 || Math.abs(t.roll) > 10 || t.pitch < 0.3) msg = 'Seedha camera ki taraf dekhiye';
         else if (t.box.x < 0 || t.box.y < 0 || t.box.x + t.box.width > t.vw || t.box.y + t.box.height > t.vh) msg = 'Pura chehra camera mein laaiye';
         if (msg || !t) { setStatus(`${msg} (${got.length}/${NEED})`); await sleep(70); continue; }
+        const lh = lightHint(v, t.box);
+        if (lh) { setStatus(`${lh} (${got.length}/${NEED})`); await sleep(120); continue; }     // never take a photo the server would refuse
         if (Date.now() - last < 700) { await sleep(60); continue; }
         const shot = frameJpeg(v);
         if (!shot) continue;
@@ -202,7 +210,7 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
         </div>
         <div className="fid-hint">{status}<span className="muted small"> · {samples.length}/{NEED}</span></div>
         <div className="row gap wrap">
-          <Button variant="primary" disabled={capturing} onClick={() => { setSamples([]); setRing(Array(RING).fill(false)); setFront(false); setCapturing(true); }}>{samples.length ? 'Retake' : 'Start capture'}</Button>
+          <Button variant="primary" disabled={capturing} onClick={() => { retake.current++; setSamples([]); setRing(Array(RING).fill(false)); setFront(false); setCapturing(true); }}>{samples.length ? 'Retake' : 'Start capture'}</Button>
           <Button variant="ghost" onClick={() => setFacing(facing === 'user' ? 'environment' : 'user')}>Switch camera</Button>
         </div>
       </>}
