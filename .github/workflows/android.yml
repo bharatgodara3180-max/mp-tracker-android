@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
 env:
-  APP_VERSION: "1.04"
+  APP_VERSION: "1.05"
 permissions:
   contents: write
 jobs:
