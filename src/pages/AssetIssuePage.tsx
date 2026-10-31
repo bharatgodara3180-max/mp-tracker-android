@@ -117,7 +117,7 @@ export default function AssetIssuePage() {
     } catch (e) { setMsg({ kind: 'err', text: e instanceof Error ? e.message : String(e) }); beepErr(); return { matched: false }; }
   }, [call]);
 
-  const cam = useFaceCapture({ enabled: !!s && !picking && !problem, facing: 'user', requireBlink: false, onCapture, onReset: () => {} });
+  const cam = useFaceCapture({ enabled: !!s && !problem, facing: 'user', requireBlink: false, onCapture, onReset: () => {} });
 
   const onAsset = async (v: string) => {
     if (!emp) return;
@@ -146,33 +146,34 @@ export default function AssetIssuePage() {
         <button type="button" onClick={() => open('txn')}>DC-DC Transaction</button>
         <button type="button" onClick={logout}>Logout</button>
       </header>
-      {picking ? (
-        <div className="ai-pick">
-          <h2>Select Issue Area</h2>
-          <p>Ye device kis liye issue ho raha hai?</p>
-          {AREAS.map((a) => <button key={a} type="button" className="ai-big" onClick={() => pick(a)}>{a}</button>)}
-        </div>
-      ) : (
-        <>
-          <div className="ai-area"><span>Issue Area: <b>{area}</b> 🔒</span>
-            <button type="button" onClick={() => { setPicking(true); setStep('face'); setEmp(null); }}>Change</button></div>
-          <div className="ai-cam">
-            {problem ? <div className="ai-asset"><h2>Camera nahi chal raha</h2><p>Is device mein camera available nahi hai.</p></div>
-              : <CameraStage cam={cam} mirror />}
-            {msg && <div className={`ai-msg ${msg.kind}`} onClick={() => setMsg(null)}>{msg.text}</div>}
-            {step === 'asset' && emp && (
-              <div className="ai-asset">
-                <div className="ai-emp"><div><b>{emp.name}</b><div className="muted">{emp.emp_id} · {emp.designation || '-'}</div></div>
-                  <button type="button" onClick={() => { setStep('face'); setEmp(null); setMsg(null); cool.current = Date.now() + 2000; }}>Back / Next employee</button></div>
-                {emp.held.length > 0 && <div className="ai-held">Currently holding: {emp.held.map((h) => `${h.asset_id} (${h.type})`).join(', ')}</div>}
-                <h2>Scan Asset ID</h2>
-                <ScanBox onSubmit={(v) => void onAsset(v)} />
-                {msg?.kind === 'err' && <div className="ai-err">{msg.text}</div>}
-              </div>
-            )}
+      {!picking && <div className="ai-area"><span>Issue Area: <b>{area}</b> 🔒</span>
+        <button type="button" onClick={() => { setPicking(true); setStep('face'); setEmp(null); }}>Change</button></div>}
+      <div className="ai-cam">
+        {problem ? <div className="ai-over"><div className="ai-card"><h2>Camera nahi chal raha</h2></div></div>
+          : <CameraStage cam={cam} mirror />}
+        {msg && !picking && <div className={`ai-msg ${msg.kind}`} onClick={() => setMsg(null)}>{msg.text}</div>}
+        {picking && (
+          <div className="ai-over">
+            <div className="ai-card">
+              <h2>Select Issue Area</h2>
+              <p className="ai-sub">Select the area this asset is being issued for.</p>
+              <div className="ai-row2">{AREAS.map((a) => <button key={a} type="button" className="ai-big" onClick={() => pick(a)}>{a}</button>)}</div>
+            </div>
           </div>
-        </>
-      )}
+        )}
+        {!picking && step === 'asset' && emp && (
+          <div className="ai-over">
+            <div className="ai-card">
+              <div className="ai-emp"><div><b>{emp.name}</b><div className="ai-sub">{emp.emp_id} · {emp.designation || '-'}</div></div>
+                <button type="button" onClick={() => { setStep('face'); setEmp(null); setMsg(null); cool.current = Date.now() + 2000; }}>Back / Next employee</button></div>
+              {emp.held.length > 0 && <div className="ai-held">Currently holding: {emp.held.map((h) => `${h.asset_id} (${h.type})`).join(', ')}</div>}
+              <h2>Step 2 - Scan Asset ID</h2>
+              <ScanBox onSubmit={(v) => void onAsset(v)} />
+            </div>
+            {msg?.kind === 'err' && <div className="ai-errbox">{msg.text}</div>}
+          </div>
+        )}
+      </div>
       <nav className="ai-nav">
         <button type="button" className="on">ISSUE</button>
         <button type="button" onClick={() => open('return')}>RETURN</button>

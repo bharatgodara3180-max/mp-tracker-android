@@ -539,27 +539,28 @@ button.pill { cursor: pointer; border: 0; }
 .modal-body .check { white-space: normal; align-items: flex-start; display: flex; font-size: 14px; }
 .modal-body .check input[type=checkbox] { flex: none; width: 22px; height: 22px; margin-top: 1px; }
 
-/* ---------- Asset Desk Issue (face) built into the app ---------- */
-.ai-screen { position: fixed; inset: 0; display: flex; flex-direction: column; background: #0b1020; color: #fff; }
-.ai-top { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #141b34; }
+/* ---------- Asset Desk Issue (face) built into the app - same look as the Asset Desk page ---------- */
+.ai-screen { position: fixed; inset: 0; display: flex; flex-direction: column; background: #f1f5f9; color: #0f172a; font-family: system-ui, -apple-system, Roboto, sans-serif; }
+.ai-top { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px; background: #0f172a; color: #fff; }
 .ai-top .who { flex: 1; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ai-top button, .ai-area button, .ai-emp button { border: 1px solid #33407a; background: transparent; color: #cfd6ee; border-radius: 8px; padding: 6px 10px; font-size: 13px; }
-.ai-area { flex: none; display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; background: #1c2547; font-size: 16px; }
-.ai-cam { position: relative; flex: 1; min-height: 0; background: #000; }
+.ai-top button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 9px 12px; font-weight: 600; font-size: 14px; }
+.ai-top button:last-child { background: #334155; }
+.ai-area { flex: none; display: flex; justify-content: space-between; align-items: center; background: #e0e7ff; border-radius: 10px; padding: 10px 12px; margin: 10px 12px 0; }
+.ai-area button, .ai-emp button { background: none; border: 0; color: #2563eb; font-weight: 600; padding: 8px; font-size: 14px; }
+.ai-cam { position: relative; flex: 1; min-height: 0; margin: 10px 12px 0; border-radius: 12px; overflow: hidden; background: #000; }
 .ai-cam .face-stage { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; aspect-ratio: auto; border-radius: 0; margin: 0; }
-.ai-msg { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 6; padding: 12px 14px; border-radius: 10px; font-weight: 700; font-size: 16px; }
-.ai-msg.ok { background: #1f9d55; } .ai-msg.err { background: #d6333b; } .ai-msg.warn { background: #d98a00; }
-.ai-asset { position: absolute; inset: 0; z-index: 4; background: #f4f6fb; color: #1a2038; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
-.ai-asset .muted { color: #5a6488; font-size: 14px; }
-.ai-emp { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 20px; }
-.ai-emp button { color: #2d4bd8; border-color: #2d4bd8; }
-.ai-held { background: #fff3cd; border: 1px solid #f0d36a; border-radius: 10px; padding: 10px; font-size: 14px; }
-.ai-asset h2 { margin: 4px 0 0; font-size: 18px; }
-.ai-scan { width: 100%; padding: 16px; font-size: 22px; border: 2px solid #2d4bd8; border-radius: 12px; background: #fff; color: #111; }
-.ai-err { color: #b3161b; font-weight: 700; }
-.ai-pick { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 24px; }
-.ai-pick h2 { margin: 0; } .ai-pick p { margin: 0 0 8px; color: #9aa6c8; }
-.ai-big { padding: 24px; font-size: 24px; font-weight: 800; border-radius: 14px; border: 0; background: #f5b400; color: #1a1a1a; }
-.ai-nav { flex: none; display: flex; background: #141b34; }
-.ai-nav button { flex: 1; padding: 14px 0; border: 0; border-top: 3px solid transparent; background: none; color: #9aa6c8; font-weight: 700; font-size: 14px; }
-.ai-nav button.on { color: #f5b400; border-top-color: #f5b400; }
+.ai-over { position: absolute; inset: 0; z-index: 4; background: #f1f5f9; padding: 0; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+.ai-card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 1px 3px #0001; color: #0f172a; }
+.ai-card h2 { margin: 0 0 10px; font-size: 18px; }
+.ai-sub { color: #64748b; font-size: 14px; margin: 0 0 10px; }
+.ai-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ai-big { background: #2563eb; color: #fff; border: 0; border-radius: 12px; padding: 16px; font-size: 18px; font-weight: 700; width: 100%; }
+.ai-emp { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; margin-bottom: 8px; font-size: 18px; }
+.ai-held { background: #fef3c7; color: #92400e; border-radius: 8px; padding: 8px; margin-bottom: 10px; font-size: 14px; }
+.ai-scan { width: 100%; font-size: 22px; padding: 16px; border: 3px solid #2563eb; border-radius: 12px; outline: none; background: #fff; color: #0f172a; box-sizing: border-box; }
+.ai-msg { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 6; border-radius: 10px; padding: 12px; font-weight: 600; }
+.ai-msg.ok { background: #dcfce7; color: #166534; } .ai-msg.err { background: #fee2e2; color: #991b1b; } .ai-msg.warn { background: #fef3c7; color: #92400e; }
+.ai-errbox { background: #fee2e2; color: #991b1b; border-radius: 10px; padding: 12px; font-weight: 600; }
+.ai-nav { flex: none; display: flex; background: #fff; border-top: 1px solid #cbd5e1; margin-top: 10px; }
+.ai-nav button { flex: 1; padding: 16px; border: 0; border-top: 3px solid transparent; background: none; font-weight: 800; font-size: 16px; color: #64748b; }
+.ai-nav button.on { color: #2563eb; border-top-color: #2563eb; }
