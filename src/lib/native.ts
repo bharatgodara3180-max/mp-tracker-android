@@ -82,12 +82,14 @@ export const linkChosenThisRun = () => { try { return sessionStorage.getItem(RUN
 export function markLinkChosen() { try { sessionStorage.setItem(RUN_KEY, '1'); } catch { /* ignore */ } }
 const LAST_KEY = 'sfxbm-last-link';  // localStorage: the last link that opened successfully (reopened on the next app start)
 const AUTO_KEY = 'sfxbm-auto';       // sessionStorage: the last link was already auto-opened in this app run
-export const lastLink = () => get(LAST_KEY) ?? '';
+/** The link every device opens by itself. Change it per device with "Setup" on the login page (saved on that device only). */
+export const DEFAULT_LINK = 'http://10.10.39.55:8000/ASSETS/go';
+export const lastLink = () => get(LAST_KEY) ?? DEFAULT_LINK;
 export const saveLastLink = (link: string) => { set(LAST_KEY, link.trim() || null); set('sfxbm-last-url', normalizeLink(link) ?? (parseGateLink(link) ? '' : null)); };
 /** True only once per app run: tells the link screen to open the saved link by itself (cold start). */
 export function takeAutoOpen(): boolean {
   try { if (sessionStorage.getItem(AUTO_KEY) === '1') return false; sessionStorage.setItem(AUTO_KEY, '1'); } catch { return false; }
-  return !!lastLink();
+  return true;
 }
 /** Evaluated once when the app starts: true on a cold start that has a saved link to open by itself. */
 export const BOOT_AUTO = typeof window !== "undefined" && isNativeApp() && takeAutoOpen();

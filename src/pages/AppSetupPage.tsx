@@ -24,7 +24,8 @@ export default function AppSetupPage() {
   const [server, setServer] = useState('');
   const [needServer, setNeedServer] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [opening, setOpening] = useState(BOOT_AUTO);   // cold start: show only a splash while the saved link opens
+  const sw = window as unknown as { __sfxbmBusy?: boolean; __sfxbmFailed?: boolean };
+  const [opening, setOpening] = useState(BOOT_AUTO || !!sw.__sfxbmBusy);   // cold start: show only a splash while the saved link opens
   const [error, setError] = useState<string | null>(null);
 
   const go = async (override?: string) => {
@@ -99,6 +100,13 @@ export default function AppSetupPage() {
     if (auto.current) return;
     auto.current = true;
     if (BOOT_AUTO) void go(lastLink()).finally(() => setOpening(false));
+    else if (sw.__sfxbmBusy) {                 // the start-up check in index.html is still reaching the server
+      const t = setInterval(() => {
+        if (sw.__sfxbmBusy) return;
+        clearInterval(t); setOpening(false);
+        if (sw.__sfxbmFailed) setError('Cannot reach the server. Check your network, or tap Open to retry / change the link.');
+      }, 100);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

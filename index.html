@@ -7,21 +7,27 @@
     <title>MP Control Tower</title>
     <style>html,body{background:#0b1020}</style>
     <script>
-      // SFXBM app, cold start with a saved non-MP link (Asset Desk, /ASSETS/go ...): open it at once, before the app itself loads
+      // SFXBM app, cold start: open the saved link (or the default LAN link) at once, before the app itself loads.
+      // MP-style links need the built-in screens, so those are left to the app. A quick reachability check first, so a dead link never leaves a blank error page.
       (function () {
         try {
           var cap = window.Capacitor;
           if (!cap || !cap.isNativePlatform || !cap.isNativePlatform()) return;
           if (sessionStorage.getItem('sfxbm-auto') === '1') return;
-          var u = localStorage.getItem('sfxbm-last-url');
-          if (!u || localStorage.getItem('sfxbm-v') !== '101') return;
+          var u = localStorage.getItem('sfxbm-last-url') || (localStorage.getItem('sfxbm-last-link') ? '' : 'http://10.10.39.55:8000/ASSETS/go');
+          if (!u) return;
           var x = new URL(u);
           var p = x.pathname.replace(/\/+$/, '');
           var mp = x.port === '8010' || /^\/mp(\/|$)/i.test(p) || (p === '' && x.port === '') || /[?&#]d=/.test(u) && /[?&#]k=/.test(u);
           if (mp) return;
-          sessionStorage.setItem('sfxbm-auto', '1');
-          window.location.href = u;
-        } catch (e) {}
+          window.__sfxbmBusy = true;                       // the app shows a splash (not the link box) while this check runs
+          var ctl = new AbortController(); var t = setTimeout(function () { ctl.abort(); }, 4000);
+          fetch(u, { mode: 'no-cors', cache: 'no-store', signal: ctl.signal }).then(function () {
+            clearTimeout(t);
+            sessionStorage.setItem('sfxbm-auto', '1');
+            window.location.href = u;
+          }).catch(function () { clearTimeout(t); window.__sfxbmFailed = true; window.__sfxbmBusy = false; });
+        } catch (e) { window.__sfxbmBusy = false; }
       })();
     </script>
     <meta name="mobile-web-app-capable" content="yes" />
