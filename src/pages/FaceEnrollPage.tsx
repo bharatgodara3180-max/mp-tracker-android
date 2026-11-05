@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { del, get, imageUrl, post } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
-import { cameraProblem, frameJpeg, lightHint, loadFaceEngine, startCamera, stopCamera, toJpeg, track, type Tracked } from '../lib/face';
+import { cameraProblem, frameJpeg, lightHint, loadFaceEngine, startCamera, stopCamera, track, type Tracked } from '../lib/face';
 import { MESH_IDX, delaunay, drawMesh } from '../lib/faceMesh';
 import { fmtDateTime } from '../lib/format';
 import { Button, ErrorBox, Loading, Modal, useAction } from '../components/ui';
@@ -41,7 +41,7 @@ export default function FaceEnrollPage() {
         <h3>Face enrolment</h3>
         <span className="muted">{done} / {rows?.length ?? 0} MPs enrolled</span>
       </div>
-      <p className="muted small">Har MP ka chehra ek baar register kariye — tablet ke kiosk pe IN/OUT isi se hoga. MP ki sahmati (consent) zaroori hai. Achhi roshni, seedha camera ki taraf, chashma/mask hata ke.</p>
+      <p className="muted small">Har MP ka chehra ek baar register kariye — tablet ke kiosk pe IN/OUT isi se hoga. Achhi roshni, seedha camera ki taraf, chashma/mask hata ke.</p>
       <div className="row gap wrap">
         <input placeholder="Search code or name" value={q} onChange={(e) => setQ(e.target.value)} />
         {(['all', 'no', 'yes'] as const).map((s) => <button key={s} className={`tag ${show === s ? 'on' : ''}`} onClick={() => setShow(s)}>
@@ -88,12 +88,12 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
   const [ring, setRing] = useState<boolean[]>(() => Array(RING).fill(false));
   const [front, setFront] = useState(false);
   const mesh = useRef<HTMLCanvasElement>(null);
-  const [consent, setConsent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const problem = cameraProblem();
   const capRef = useRef(false);
   capRef.current = capturing;
   const retake = useRef(0);
+  const saveRef = useRef<(photos?: string[]) => Promise<void>>(async () => {});
 
   useEffect(() => {
     if (problem) return;
@@ -149,7 +149,8 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
         setRing(Array.from({ length: RING }, (_, i) => i < got.length)); setFront(true);
         if (got.length >= NEED) {
           capRef.current = false; setCapturing(false);
-          setStatus('Ho gaya ✓ — consent tick karke Save kariye');
+          setStatus('Ho gaya ✓ — save ho raha hai…');
+          void saveRef.current([...got]);                       // auto-save: no Save click needed
           continue;
         }
         setStatus(`Seedha dekhte rahiye… (${got.length}/${NEED})`);
@@ -158,54 +159,23 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
     return () => { alive = false; stopCamera(stream); };
   }, [facing, problem]);
 
-  const fromFile = async (file: File) => {
-    setErr(null);
-    try { setSamples([await toJpeg(file)]); setStatus('Photo loaded — Save par server isko strictly check karega'); }
-    catch { setErr('Ye photo khul nahi paayi'); }
-  };
-
-  // Paste a photo (Ctrl+V anywhere in this window, or the "Paste photo" button) — copied from WhatsApp / gallery / web
-  const fromFileRef = useRef(fromFile);
-  fromFileRef.current = fromFile;
-  useEffect(() => {
-    const onPaste = (e: ClipboardEvent) => {
-      const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
-      const f = item?.getAsFile();
-      if (f) { e.preventDefault(); setCapturing(false); void fromFileRef.current(f); }
-    };
-    window.addEventListener('paste', onPaste);
-    return () => window.removeEventListener('paste', onPaste);
-  }, []);
-  const pasteButton = async () => {
-    setErr(null);
-    try {
-      const items = await navigator.clipboard.read();
-      for (const it of items) {
-        const type = it.types.find((t) => t.startsWith('image/'));
-        if (type) { setCapturing(false); await fromFile(new File([await it.getType(type)], 'pasted', { type })); return; }
-      }
-      setErr('Clipboard mein photo nahi hai — pehle photo Copy kariye');
-    } catch {
-      setErr('Paste ki permission nahi mili — photo copy karke yahan Ctrl+V dabaiye (phone pe neeche box mein long-press → Paste)');
-    }
-  };
-
-  const save = async () => {
+  const save = async (photos?: string[]) => {
     setErr(null); setSaving(true);
     try {
-      const r = await post<{ ok: boolean; message?: string }>('face/enroll', { employee_id: row.id, photos: samples, consent });
+      const r = await post<{ ok: boolean; message?: string }>('face/enroll', { employee_id: row.id, photos: photos ?? samples, consent: true });
       if (r.ok === false) { alert(r.message ?? 'Reject'); onSaved(); return; }      // already enrolled for someone else: both removed
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }       // e.g. "Photo reject: Photo dhundhli (blur) hai"
     finally { setSaving(false); }
   };
+  saveRef.current = save;
 
   return (
     <Modal title={`Face enrolment — ${row.full_name} (${row.employee_code})`} onClose={onClose} wide footer={<>
       <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" busy={saving} disabled={!samples.length || !consent || capturing} onClick={() => void save()}>Save enrolment</Button>
+      <Button variant="primary" busy={saving} disabled={!samples.length || capturing || saving} onClick={() => void save()}>Save enrolment</Button>
     </>}>
-      {problem ? <ErrorBox error="Camera is blocked on this http link. Use the HTTPS link or the Chrome flag described in the README (Face kiosk), or upload a photo below." /> : <>
+      {problem ? <ErrorBox error="Camera is blocked on this http link. Use the HTTPS link or the Chrome flag described in the README (Face kiosk)." /> : <>
         <div className="fid">
           <div className="fid-circle">
             <video ref={video} className={`face-video ${facing === 'user' ? 'mirror' : ''}`} playsInline muted />
@@ -219,14 +189,7 @@ export function EnrollModal({ row, onClose, onSaved }: { row: Pick<Row, 'id' | '
           <Button variant="ghost" onClick={() => setFacing(facing === 'user' ? 'environment' : 'user')}>Switch camera</Button>
         </div>
       </>}
-      <label className="check"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> MP ne apna chehra gate attendance ke liye register karne ki sahmati di hai (consent recorded)</label>
       <ErrorBox error={err} />
-      <div className="paste-row">
-        <Button variant="primary" onClick={() => void pasteButton()}>Paste photo</Button>
-        <div className="paste-box" contentEditable suppressContentEditableWarning onInput={(e) => { (e.target as HTMLElement).innerHTML = ''; }}>
-          Photo copy karke yahan paste kariye (Ctrl+V / long-press → Paste)</div>
-      </div>
-      <label className="small muted">Ya file se: <input type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) void fromFile(f); }} /></label>
       {samples.length > 0 && <div className="row gap"><img className="face-thumb" src={samples[0]} alt="" /><span className="small muted">{samples.length} photo(s) ready</span></div>}
     </Modal>
   );
