@@ -34,7 +34,7 @@ export function GateEnrolButton({ onOpenChange, inline, staffLogin }: {
   );
 }
 
-const STAFF = ['admin', 'supervisor', 'gate_operator', 'ops_manager'];
+const STAFF = ['admin', 'supervisor', 'gate_operator', 'ops_manager', 'ld'];
 
 function StaffLogin({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [u, setU] = useState(''); const [p, setP] = useState('');
@@ -63,7 +63,7 @@ function StaffLogin({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   );
 }
 
-function GateEnrolSheet({ onClose }: { onClose: () => void }) {
+export function GateEnrolSheet({ onClose }: { onClose: () => void }) {
   const { busy, run } = useAction();
   const [q, setQ] = useState('');
   const [rows, setRows] = useState<Found[] | null>(null);

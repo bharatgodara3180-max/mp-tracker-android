@@ -11,7 +11,8 @@ import { WorkforcePhotosModal } from '../components/WorkforcePhotos';
 import { SAMPLE_HEADERS, SAMPLE_ROWS, prepareRows, type ImportIssue, type ImportRow } from '../lib/employeeImport';
 
 const TABS = ['Areas & blocks', 'Shifts', 'Employees', 'Users & roles', 'Devices', 'Settings'] as const;
-const ROLES: AppRole[] = ['admin', 'ops_manager', 'supervisor', 'gate_operator'];   // MP logins are off
+const ROLES: AppRole[] = ['admin', 'ops_manager', 'supervisor', 'gate_operator', 'ld'];   // MP logins are off
+const roleLabel = (r: string) => (r === 'ld' ? 'L&D' : r);
 
 export default function AdminPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>(TABS[0]);
@@ -210,6 +211,7 @@ function UsersAdmin() {
   }, [], []);
   const [add, setAdd] = useState<{ username: string; full_name: string; role: AppRole; employee_id: string; password: string } | null>(null);
   const [pw, setPw] = useState<UserRow | null>(null);
+  const [edit, setEdit] = useState<{ id: string; username: string; full_name: string; role: AppRole; employee_id: string } | null>(null);
   const [newPw, setNewPw] = useState('');
 
   if (!data.data) return <><ErrorBox error={data.error} /><Loading /></>;
@@ -224,14 +226,36 @@ function UsersAdmin() {
       <table className="table compact"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Linked employee</th><th>Supervisor areas</th><th>Active</th><th /></tr></thead>
         <tbody>{d.users.map((u) => <tr key={u.id}>
           <td>{u.full_name}</td><td className="mono">{u.username}</td>
-          <td><select value={u.role} disabled={busy || u.id === profile?.user_id} onChange={(e) => void update(u, { role: e.target.value })}>{ROLES.map((r) => <option key={r}>{r}</option>)}</select></td>
+          <td><select value={u.role} disabled={busy || u.id === profile?.user_id} onChange={(e) => void update(u, { role: e.target.value })}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></td>
           <td><select value={u.employee_id ?? ''} disabled={busy} onChange={(e) => void update(u, { employee_id: e.target.value || null })}><option value="">—</option>{d.emps.map((e) => <option key={e.id} value={e.id}>{e.employee_code} · {e.full_name}</option>)}</select></td>
           <td>{u.role === 'supervisor' ? <div className="area-tags">{areas.filter((a) => a.is_active).map((a) => {
             const on = d.supervisor_areas.some((x) => x.user_id === u.id && x.area_id === a.id);
             return <button key={a.id} className={`tag ${on ? 'on' : ''}`} onClick={() => void toggleArea(u.id, a.id, !on)}>{a.code}</button>;
           })}</div> : '—'}</td>
           <td><input type="checkbox" checked={!!u.is_active} disabled={u.id === profile?.user_id} onChange={(e) => void update(u, { is_active: e.target.checked })} aria-label="Active" /></td>
-          <td><Button size="sm" variant="ghost" onClick={() => { setPw(u); setNewPw(''); }}>Reset password</Button></td></tr>)}</tbody></table>
+          <td className="row gap">
+            <Button size="sm" variant="ghost" onClick={() => setEdit({ id: u.id, username: u.username, full_name: u.full_name, role: u.role, employee_id: u.employee_id ?? '' })}>Edit</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setPw(u); setNewPw(''); }}>Reset password</Button>
+            {u.id !== profile?.user_id && <Button size="sm" variant="ghost" busy={busy} onClick={async () => {
+              if (!confirm(`Delete user "${u.full_name}" (${u.username})? Ye wapas nahi hoga.`)) return;
+              if (await run(() => del(`admin/users/${u.id}`), 'User deleted')) data.refresh();
+            }}>Delete</Button>}
+          </td></tr>)}</tbody></table>
+      {edit && <Modal title="Edit user" onClose={() => setEdit(null)} footer={<><Button variant="ghost" onClick={() => setEdit(null)}>Cancel</Button>
+        <Button variant="primary" busy={busy} onClick={async () => {
+          if (!edit.full_name.trim() || !edit.username.trim()) { toast('err', 'Name and username are required'); return; }
+          const self = edit.id === profile?.user_id;
+          const patch: Record<string, unknown> = { full_name: edit.full_name.trim(), username: edit.username.trim(), employee_id: edit.employee_id || null };
+          if (!self) patch.role = edit.role;
+          if (await run(() => put(`admin/users/${edit.id}`, patch), 'User updated')) { setEdit(null); data.refresh(); }
+        }}>Save</Button></>}>
+        <div className="grid2">
+          <Field label="Full name"><input value={edit.full_name} onChange={(e) => setEdit({ ...edit, full_name: e.target.value })} /></Field>
+          <Field label="Username (for login)"><input value={edit.username} autoComplete="off" onChange={(e) => setEdit({ ...edit, username: e.target.value })} /></Field>
+          <Field label="Role"><select value={edit.role} disabled={edit.id === profile?.user_id} onChange={(e) => setEdit({ ...edit, role: e.target.value as AppRole })}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></Field>
+          <Field label="Linked employee"><select value={edit.employee_id} onChange={(e) => setEdit({ ...edit, employee_id: e.target.value })}><option value="">—</option>{d.emps.map((e) => <option key={e.id} value={e.id}>{e.employee_code} · {e.full_name}</option>)}</select></Field>
+        </div>
+      </Modal>}
       {add && <Modal title="Create user" onClose={() => setAdd(null)} footer={<><Button variant="ghost" onClick={() => setAdd(null)}>Cancel</Button>
         <Button variant="primary" busy={busy} onClick={async () => {
           if (add.password.length < 8) { toast('err', 'Password must be at least 8 characters'); return; }
@@ -242,7 +266,7 @@ function UsersAdmin() {
         <div className="grid2">
           <Field label="Full name"><input value={add.full_name} onChange={(e) => setAdd({ ...add, full_name: e.target.value })} /></Field>
           <Field label="Username (for login)"><input value={add.username} autoComplete="off" onChange={(e) => setAdd({ ...add, username: e.target.value })} /></Field>
-          <Field label="Role"><select value={add.role} onChange={(e) => setAdd({ ...add, role: e.target.value as AppRole })}>{ROLES.map((r) => <option key={r}>{r}</option>)}</select></Field>
+          <Field label="Role"><select value={add.role} onChange={(e) => setAdd({ ...add, role: e.target.value as AppRole })}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></Field>
           <Field label="Linked employee (required for MP)"><select value={add.employee_id} onChange={(e) => setAdd({ ...add, employee_id: e.target.value })}><option value="">—</option>{d.emps.map((e) => <option key={e.id} value={e.id}>{e.employee_code} · {e.full_name}</option>)}</select></Field>
           <Field label="Password (min 8)"><input type="password" autoComplete="new-password" value={add.password} onChange={(e) => setAdd({ ...add, password: e.target.value })} /></Field>
         </div>

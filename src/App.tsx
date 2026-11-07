@@ -25,6 +25,7 @@ const DcGatePage = lazy(() => import('./pages/DcGatePage'));
 const AppSetupPage = lazy(() => import('./pages/AppSetupPage'));
 const HostPage = lazy(() => import('./pages/HostPage'));
 const SfxMpEntry = lazy(() => import('./pages/SfxMpEntry'));
+const LdPage = lazy(() => import('./pages/LdPage'));
 
 // Dashboard: admin (full control) and ops_manager (view only + report downloads).
 // Supervisors get the supervisor app, gate operators only the DC IN/OUT screen. MP logins are off.
@@ -42,6 +43,7 @@ const NAV: { to: string; label: string; roles: AppRole[]; hidden?: boolean }[] =
   { to: '/sup', label: 'Supervisor app', roles: ['supervisor', 'admin'], hidden: true },
   { to: '/face-kiosk', label: 'DC IN/OUT', roles: ['gate_operator', 'admin'], hidden: true },
   { to: '/kiosk', label: 'QR kiosk', roles: ['admin'], hidden: true },
+  { to: '/ld', label: 'L&D', roles: ['ld'], hidden: true },
 ];
 
 export default function App() {
@@ -57,7 +59,7 @@ export default function App() {
 }
 
 function home(role: AppRole) {
-  return role === 'supervisor' ? '/sup' : role === 'gate_operator' ? '/face-kiosk' : '/';
+  return role === 'supervisor' ? '/sup' : role === 'gate_operator' ? '/face-kiosk' : role === 'ld' ? '/ld' : '/';
 }
 
 function Shell() {
@@ -100,6 +102,7 @@ function Shell() {
             <Route path="/kiosk" element={guard('/kiosk', <KioskPage />)} />
             <Route path="/face-kiosk" element={guard('/face-kiosk', <FaceKioskPage />)} />
             <Route path="/face-enroll" element={guard('/face-enroll', <FaceEnrollPage />)} />
+            <Route path="/ld" element={guard('/ld', <LdPage />)} />
             <Route path="/sup" element={guard('/sup', <SupervisorApp />)} />
             <Route path="*" element={<Navigate to={home(profile.role)} replace />} />
           </Routes>
