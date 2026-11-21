@@ -13,7 +13,8 @@ import { InstallAppButton } from '../components/InstallApp';
 import { GateEnrolButton } from '../components/GateEnrol';
 import { useAuth } from '../hooks/useAuth';
 import { isNativeApp } from '../lib/native';
-import { CameraHelp, CameraStage, CameraSwitch, FullResult, playSound, useFaceCapture, type CaptureOutcome, type KioskResult } from '../components/FaceKiosk';
+import GateResult from '../components/GateResult';
+import { CameraHelp, CameraStage, CameraSwitch, playSound, useFaceCapture, type CaptureOutcome, type KioskResult } from '../components/FaceKiosk';
 
 const DEVICE_KEY = 'mp-face-device';
 const FACING_KEY = 'mp-face-facing';
@@ -206,7 +207,7 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
         <span>Shuru karne ke liye screen touch kariye</span>
         <InstallAppButton label="Tablet pe app install karein" className="btn gate-install" />
       </div>}
-      {view && <FullResult {...view} />}
+      {view && <GateResult {...view} />}
     </div>
   );
 }

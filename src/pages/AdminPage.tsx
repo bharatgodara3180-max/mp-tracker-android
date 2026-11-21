@@ -11,7 +11,7 @@ import { WorkforcePhotosModal } from '../components/WorkforcePhotos';
 import { SAMPLE_HEADERS, SAMPLE_ROWS, prepareRows, type ImportIssue, type ImportRow } from '../lib/employeeImport';
 
 const TABS = ['Areas & blocks', 'Shifts', 'Employees', 'Users & roles', 'Devices', 'Settings'] as const;
-const ROLES: AppRole[] = ['admin', 'ops_manager', 'supervisor', 'gate_operator', 'ld'];   // MP logins are off
+const ROLES: AppRole[] = ['admin', 'ops_manager', 'supervisor', 'gate_operator', 'gate_operator_in', 'gate_operator_out', 'ld'];   // MP logins are off
 const roleLabel = (r: string) => (r === 'ld' ? 'L&D' : r);
 
 export default function AdminPage() {
@@ -204,7 +204,7 @@ function UsersAdmin() {
   const toast = useToast();
   const data = useLiveQuery(async () => {
     const [u, emps] = await Promise.all([
-      get<{ users: UserRow[]; supervisor_areas: { user_id: string; area_id: string }[] }>('admin/users'),
+      get<{ users: UserRow[]; supervisor_areas: { user_id: string; area_id: string }[]; gate_access?: { user_id: string; direction: 'IN' | 'OUT' }[] }>('admin/users'),
       get<{ id: string; employee_code: string; full_name: string; is_active: number }[]>('admin/employees'),
     ]);
     return { ...u, emps: emps.filter((e) => e.is_active) };
@@ -219,11 +219,13 @@ function UsersAdmin() {
   const update = (u: UserRow, patch: Record<string, unknown>) => run(() => put(`admin/users/${u.id}`, patch), 'User updated').then(() => data.refresh());
   const toggleArea = (userId: string, areaId: string, on: boolean) => run(() => put('admin/supervisor-areas', { user_id: userId, area_id: areaId, on })).then(() => data.refresh());
 
+  const toggleGate = (userId: string, direction: 'IN' | 'OUT', on: boolean) => run(() => put('admin/gate-access', { user_id: userId, direction, on })).then(() => data.refresh());
+
   return (
     <section className="panel">
       <div className="row between"><h3>Users & roles</h3><Button size="sm" variant="primary" onClick={() => setAdd({ username: '', full_name: '', role: 'supervisor', employee_id: '', password: '' })}>Create user</Button></div>
       <p className="muted small">Logins are stored on this server (no cloud). MP logins (for receiving handovers on phone) must be linked to their employee record. Changing a role or disabling signs that user out everywhere.</p>
-      <table className="table compact"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Linked employee</th><th>Supervisor areas</th><th>Active</th><th /></tr></thead>
+      <table className="table compact"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Linked employee</th><th>Supervisor areas / Gate</th><th>Active</th><th /></tr></thead>
         <tbody>{d.users.map((u) => <tr key={u.id}>
           <td>{u.full_name}</td><td className="mono">{u.username}</td>
           <td><select value={u.role} disabled={busy || u.id === profile?.user_id} onChange={(e) => void update(u, { role: e.target.value })}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></td>
@@ -231,6 +233,10 @@ function UsersAdmin() {
           <td>{u.role === 'supervisor' ? <div className="area-tags">{areas.filter((a) => a.is_active).map((a) => {
             const on = d.supervisor_areas.some((x) => x.user_id === u.id && x.area_id === a.id);
             return <button key={a.id} className={`tag ${on ? 'on' : ''}`} onClick={() => void toggleArea(u.id, a.id, !on)}>{a.code}</button>;
+          })}</div> : u.role === 'gate_operator' ? <div className="area-tags" title="Dono tick (ya koi nahi) = IN aur OUT dono">{(['IN', 'OUT'] as const).map((g) => {
+            const mine = (d.gate_access ?? []).filter((x) => x.user_id === u.id).map((x) => x.direction);
+            const on = mine.includes(g);
+            return <button key={g} className={`tag ${on ? 'on' : ''}`} onClick={() => void toggleGate(u.id, g, !on)}>{g}</button>;
           })}</div> : '—'}</td>
           <td><input type="checkbox" checked={!!u.is_active} disabled={u.id === profile?.user_id} onChange={(e) => void update(u, { is_active: e.target.checked })} aria-label="Active" /></td>
           <td className="row gap">

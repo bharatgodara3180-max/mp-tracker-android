@@ -1,4 +1,4 @@
-export type AppRole = 'admin' | 'ops_manager' | 'supervisor' | 'mp' | 'gate_operator' | 'ld';
+export type AppRole = 'admin' | 'ops_manager' | 'supervisor' | 'mp' | 'gate_operator' | 'gate_operator_in' | 'gate_operator_out' | 'ld';
 
 export type MpStatus =
   | 'NOT_CHECKED_IN' | 'INSIDE_UNASSIGNED' | 'WORKING' | 'ON_BREAK'

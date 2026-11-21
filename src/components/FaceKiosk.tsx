@@ -174,14 +174,14 @@ export function useFaceCapture(opts: {
         if (!matched) lastMiss = { at: Date.now() };
         const hold = out?.holdMs ?? (matched ? ref.current.resultMs : NOT_MATCHED_MS);
         if (hold) { await sleep(hold); }
-        else {   // gate: keep the result until the person moves away (min 1.5 s, max 6 s)
+        else {   // gate: keep the result until the person moves away (min 0.75 s, max 3 s)
           const shownAt = Date.now(); let lastSeen = Date.now();
           while (alive) {
             let seen = false;
             try { seen = !!(await track(v)); } catch { /* ignore */ }
             if (seen) lastSeen = Date.now();
             const shown = Date.now() - shownAt;
-            if ((shown > 1500 && Date.now() - lastSeen > 700) || shown > 6000) break;
+            if ((shown > 750 && Date.now() - lastSeen > 700) || shown > 3000) break;
             await sleep(120);
           }
         }
