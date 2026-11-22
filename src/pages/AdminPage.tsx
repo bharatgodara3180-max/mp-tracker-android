@@ -264,7 +264,7 @@ function UsersAdmin() {
       </Modal>}
       {add && <Modal title="Create user" onClose={() => setAdd(null)} footer={<><Button variant="ghost" onClick={() => setAdd(null)}>Cancel</Button>
         <Button variant="primary" busy={busy} onClick={async () => {
-          if (add.password.length < 8) { toast('err', 'Password must be at least 8 characters'); return; }
+          if (add.password.length < 4) { toast('err', 'Password must be at least 4 characters'); return; }
           if (add.role === 'mp' && !add.employee_id) { toast('err', 'MP login must be linked to an employee'); return; }
           const r = await run(() => post('admin/users', { ...add, employee_id: add.employee_id || null }), 'User created');
           if (r) { setAdd(null); data.refresh(); }
@@ -274,12 +274,12 @@ function UsersAdmin() {
           <Field label="Username (for login)"><input value={add.username} autoComplete="off" onChange={(e) => setAdd({ ...add, username: e.target.value })} /></Field>
           <Field label="Role"><select value={add.role} onChange={(e) => setAdd({ ...add, role: e.target.value as AppRole })}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></Field>
           <Field label="Linked employee (required for MP)"><select value={add.employee_id} onChange={(e) => setAdd({ ...add, employee_id: e.target.value })}><option value="">—</option>{d.emps.map((e) => <option key={e.id} value={e.id}>{e.employee_code} · {e.full_name}</option>)}</select></Field>
-          <Field label="Password (min 8)"><input type="password" autoComplete="new-password" value={add.password} onChange={(e) => setAdd({ ...add, password: e.target.value })} /></Field>
+          <Field label="Password (min 4)"><input type="password" autoComplete="new-password" value={add.password} onChange={(e) => setAdd({ ...add, password: e.target.value })} /></Field>
         </div>
       </Modal>}
       {pw && <Modal title={`Reset password — ${pw.full_name}`} onClose={() => setPw(null)} footer={<><Button variant="ghost" onClick={() => setPw(null)}>Cancel</Button>
         <Button variant="primary" busy={busy} onClick={async () => { if (await run(() => post(`admin/users/${pw.id}/password`, { password: newPw }), 'Password reset')) setPw(null); }}>Reset</Button></>}>
-        <Field label="New password (min 8)"><input type="password" autoComplete="new-password" value={newPw} onChange={(e) => setNewPw(e.target.value)} /></Field>
+        <Field label="New password (min 4)"><input type="password" autoComplete="new-password" value={newPw} onChange={(e) => setNewPw(e.target.value)} /></Field>
       </Modal>}
     </section>
   );

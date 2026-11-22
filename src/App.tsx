@@ -172,7 +172,7 @@ function LoginPage({ initialError }: { initialError: string | null }) {
         <ErrorBox error={err} />
         {first && <Field label="Your name"><input value={name} onChange={(e) => setName(e.target.value)} required /></Field>}
         <Field label="Username"><input autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required autoCapitalize="none" /></Field>
-        <Field label={first ? 'Password (min 8)' : 'Password'}><input type="password" autoComplete={first ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} required /></Field>
+        <Field label={first ? 'Password (min 4)' : 'Password'}><input type="password" autoComplete={first ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} required /></Field>
         <Button variant="primary" busy={busy} type="submit" disabled={first && !setup?.local}>{first ? 'Create admin & sign in' : 'Sign in'}</Button>
         {isNativeApp() && <button type="button" className="link-btn small muted" onClick={() => { window.location.hash = '#/app-setup'; }}>
           Server: {appServer()} · App setup</button>}
