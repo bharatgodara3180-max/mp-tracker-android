@@ -26,7 +26,11 @@ export function playSound(alarm: boolean) {
 /** Speaks the employee's name aloud in the Google Hindi voice, speed 0.85 (gate operators only - the caller decides). */
 export function speakName(name?: string | null) {
   try {
-    if (!name || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (!name || typeof window === 'undefined') return;
+    // Android app: the WebView has no speech engine, so use the phone's own text-to-speech (SFXBMNative.speak)
+    const nat = (window as unknown as { SFXBMNative?: { speak?: (t: string, r: number) => void } }).SFXBMNative;
+    if (nat && typeof nat.speak === 'function') { nat.speak(name.trim().toLowerCase(), 0.85); return; }
+    if (!('speechSynthesis' in window)) return;
     const u = new SpeechSynthesisUtterance(name.trim().toLowerCase());
     const vs = window.speechSynthesis.getVoices();
     const v = vs.find((x) => /google/i.test(x.name) && /hindi|हिन्दी|^hi/i.test(`${x.name} ${x.lang}`)) ?? vs.find((x) => /^hi/i.test(x.lang));
