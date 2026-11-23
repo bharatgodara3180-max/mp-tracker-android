@@ -53,7 +53,7 @@ export default function SupervisorApp() {
   const purpose = outChoice?.purpose ?? 'LUNCH';
   const [route, setRoute] = useState('');
   // how many MPs are in my area right now (Pickup-type area: assigned for / on pickup)
-  const areaLive = useLiveQuery<{ rows: MpLive[] }>(() => (area ? get('live') : Promise.resolve({ rows: [] })),
+  const areaLive = useLiveQuery<{ rows: MpLive[] }>(() => get('live'),
     ['mp_current_state', 'work_assignments', 'pickup_assignments'], [area], { pollMs: 20000 });
   const areaRow = pickAreas.find((a) => a.id === area);
   const isPickupArea = areaRow?.out_purpose === 'PICKUP';
@@ -77,6 +77,9 @@ export default function SupervisorApp() {
   const logout = () => { try { localStorage.removeItem(areaKey); } catch { /* ignore */ } signOut(); };
 
   if (ref.loading && !ref.workAreas.length) return <div className="center-screen"><Loading /></div>;
+
+  // after login: load everything first (areas, my-areas, current deployment), only then show the area list
+  if (!areaRow && ((mine.loading && !mine.data) || (areaLive.loading && !areaLive.data))) return <div className="center-screen"><Loading /></div>;
 
   if (!areaRow) return (
     <div className="kiosk sup-pick">

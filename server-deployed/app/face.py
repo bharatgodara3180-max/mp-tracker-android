@@ -553,6 +553,8 @@ def scan(x: Ctx, a: dict) -> dict:
         direction, purpose, permit = "IN", None, None
         res = result("DC IN") if sup else _plan_in(x, s, emp, t)
 
+    if direction == "IN" and s["pickup_id"]:   # back from pickup / official: straight to "unassigned" - no handover, no auto area
+        x.ex("UPDATE pickup_assignments SET handover_required=0, next_area_id=NULL WHERE id=?", (s["pickup_id"],))
     r = process_gate_event(x, emp, direction, t, "FACE_DEVICE", device_id=dev["id"], device_event_id=eid, purpose=purpose,
                            confidence=conf, person_ref=e["code"], reason=f"{res['label']} · {res['sub']}".strip(" ·"),
                            raw={**raw, "result": res})
@@ -565,6 +567,10 @@ def scan(x: Ctx, a: dict) -> dict:
         far = iso(t + timedelta(hours=16))      # official work: no "late back" alerts for supervisor-ID employees
         x.ex("UPDATE pickup_assignments SET expected_return_at=? WHERE departure_gate_event_id=?", (far, r["gate_event_id"]))
         x.ex("UPDATE mp_current_state SET expected_by=? WHERE employee_id=?", (far, emp))
+    if r.get("processing_status") == "APPLIED":
+        # pickup has no fixed return time: no deadline, so no "late return" / PICKUP_DELAYED alert (lunch keeps its own limit)
+        x.ex("UPDATE pickup_assignments SET expected_return_at=NULL WHERE status='OUT' AND expected_return_at IS NOT NULL")
+        x.ex("UPDATE mp_current_state SET expected_by=NULL WHERE status IN ('OUTSIDE_PICKUP','OUTSIDE_OFFICIAL','OUTSIDE_OTHER') AND expected_by IS NOT NULL")
     if r.get("processing_status") == "APPLIED":   # MP went in/out: earlier supervisor repeat answers no longer apply
         with _deploy_lock:
             for k in [k for k in _deploy_recent if k[0] == emp]:
