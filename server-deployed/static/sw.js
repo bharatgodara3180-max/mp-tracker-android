@@ -2,7 +2,7 @@
    Gate / Deploy apps open instantly (the 7 MB models are downloaded only once).
    Live data (/api/) is never cached. */
 const MODELS = 'mp-models-v1';
-const ASSETS = 'mp-assets-v12';
+const ASSETS = 'mp-assets-v13';
 const SHELL = 'mp-shell-v1';
 const MODEL_FILES = [
   'tiny_face_detector_model-weights_manifest.json', 'tiny_face_detector_model.bin',
@@ -31,6 +31,21 @@ async function cacheFirst(cacheName, req) {
   return res;
 }
 
+// app files (/assets/): always ask the server first (a cheap 304 when unchanged), the saved copy is only the offline fallback,
+// so a patched file can never be shadowed by an older copy of the same name
+async function assetsFresh(req) {
+  const c = await caches.open(ASSETS);
+  try {
+    const res = await fetch(req, { cache: 'no-cache' });
+    if (res.ok) c.put(req, res.clone());
+    return res;
+  } catch (err) {
+    const hit = await c.match(req, { ignoreSearch: true });
+    if (hit) return hit;
+    throw err;
+  }
+}
+
 async function networkFirst(req) {
   const c = await caches.open(SHELL);
   try {
@@ -50,6 +65,6 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || url.pathname.includes('/api/')) return;
   if (url.pathname.includes('/models/')) { e.respondWith(cacheFirst(MODELS, req)); return; }
-  if (url.pathname.includes('/assets/')) { e.respondWith(cacheFirst(ASSETS, req)); return; }   // file names change with every build
+  if (url.pathname.includes('/assets/')) { e.respondWith(assetsFresh(req)); return; }
   e.respondWith(networkFirst(req));                                                            // index.html, manifests, icons
 });
