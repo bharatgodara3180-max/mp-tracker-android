@@ -210,7 +210,9 @@ export interface GateLogRow {
 export type Kpis = Record<
   | 'total_on_shift' | 'inside' | 'outside' | 'on_pickup' | 'on_break' | 'primary' | 'secondary' | 'staging'
   | 'dock' | 'other_blocks' | 'handover_pending' | 'handover_overdue' | 'unassigned' | 'exceptions' | 'not_checked_in',
-  number> & { computed_at: string; areas?: KpiArea[] };
+  number> & { computed_at: string; areas?: KpiArea[]; shifts?: KpiShift[] };
+/** Per shift: MPs who came (DC IN) in the shift's current timing window, and the rostered strength (default shift). */
+export interface KpiShift { id: string; code: string; name: string; start: string; end: string; came: number; roster: number; business_date: string }
 
 export interface RpcResult {
   ok: boolean;

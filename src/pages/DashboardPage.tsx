@@ -14,7 +14,6 @@ import { MpActionModal, availableActions, ACTION_LABEL, type MpActionKind } from
 type KpiDef = { key: string; label: string; tone: string; alarm?: boolean; value: (k: Kpis) => number; filter?: (r: MpLive) => boolean };
 const ON = (r: MpLive) => !['NOT_CHECKED_IN', 'SHIFT_ENDED'].includes(r.status);
 const HEAD: KpiDef[] = [
-  { key: 'total_on_shift', label: 'On shift', tone: 'neutral', value: (k) => k.total_on_shift, filter: ON },
   { key: 'inside', label: 'Inside DC', tone: 'green', value: (k) => k.inside, filter: (r) => r.presence === 'INSIDE' && ON(r) },
 ];
 const TAIL: KpiDef[] = [
@@ -33,7 +32,10 @@ function kpiDefs(k: Kpis | undefined): KpiDef[] {
     { key: `asg:${a.id}`, label: `Assigned for ${a.name}`, tone: 'amber', value: pick(a.id, 'assigned'), filter: (r: MpLive) => r.out_state === 'ASSIGNED' && r.out_area_id === a.id },
     { key: `out:${a.id}`, label: `On ${a.name}`, tone: a.out_purpose === 'LUNCH' ? 'violet' : 'blue', value: pick(a.id, 'out'), filter: (r: MpLive) => r.out_state === 'OUT' && r.out_area_id === a.id },
   ]);
-  return [...HEAD, ...work, ...out, ...TAIL];
+  // one card per shift: how many came in that shift's timing window (replaces the single "On shift" card)
+  const shifts: KpiDef[] = (k?.shifts ?? []).map((s) => ({ key: `shift:${s.id}`, label: `Shift ${s.code} · ${s.start}-${s.end}`, tone: 'neutral',
+    value: (kk: Kpis) => kk.shifts?.find((x) => x.id === s.id)?.came ?? 0, filter: (r: MpLive) => r.shift_id === s.id && ON(r) }));
+  return [...shifts, ...HEAD, ...work, ...out, ...TAIL];
 }
 
 export default function DashboardPage() {
