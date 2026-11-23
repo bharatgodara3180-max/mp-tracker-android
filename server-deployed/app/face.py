@@ -320,7 +320,7 @@ def _plan_in(x: Ctx, s: dict, emp: str, t: datetime) -> dict:
         if start:
             late = (t - start).total_seconds() / 60
             if late > s_int(x, "dc_late_grace_minutes", 15):
-                return result("DC IN LATE", f"{_hm_text(late)} late · shift {start.strftime('%H:%M')}", "red", True)
+                return result("DC IN LATE", f"{_hm_text(late)} late · shift {start.strftime('%H:%M')}", "green", False)   # late shift IN is still a successful scan (green, no alarm); it shows in the attendance report
             return result("DC IN", f"SHIFT START · {start.strftime('%H:%M')}")
         return result("DC IN", "SHIFT START")
     if s["status"] == "OUTSIDE_BREAK" and s["break_id"]:
