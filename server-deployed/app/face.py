@@ -723,9 +723,9 @@ def lunch_left(x: Ctx, emp: str, s: dict, now: datetime) -> tuple[float, str]:
 
 def pending_out(x: Ctx, emp: str, now: datetime) -> dict | None:
     """OUT given by a supervisor that the MP has not used yet (lunch permit / planned pickup or other)."""
-    p = x.one("SELECT id, out_area_id, from_area_id, 'permit' AS kind, 'LUNCH' AS purpose FROM exit_permits "
+    p = x.one("SELECT id, out_area_id, from_area_id, created_by AS by_user, 'permit' AS kind, 'LUNCH' AS purpose FROM exit_permits "
               "WHERE employee_id=? AND status='PENDING' AND valid_until >= ? ORDER BY created_at DESC LIMIT 1", (emp, iso(now)))
-    p = p or x.one("SELECT id, out_area_id, from_area_id, 'pickup' AS kind, purpose FROM pickup_assignments "
+    p = p or x.one("SELECT id, out_area_id, from_area_id, planned_by AS by_user, 'pickup' AS kind, purpose FROM pickup_assignments "
                    "WHERE employee_id=? AND status='PLANNED'", (emp,))
     if p:
         n = x.one("SELECT name FROM areas WHERE id=?", (p["out_area_id"],)) if p["out_area_id"] else None

@@ -20,6 +20,12 @@ def _area(x: Ctx, aid: str | None, label: str) -> dict:
     return a
 
 
+def may_hand_over(po: dict, area_id: str | None, uid: str | None) -> bool:
+    """MP is assigned for pickup / lunch: the supervisor who gave that OUT, or the area that sent him (or the area he works in
+    when the record has no sender) may hand him over."""
+    return bool(po.get("by_user") and po["by_user"] == uid) or po.get("from_area_id") in (None, area_id)
+
+
 def _name(a: dict) -> str:
     return f"{a['name']} ({a['code']})"
 
@@ -39,16 +45,21 @@ def create(x: Ctx, a: dict) -> dict:
     cur = x.one("SELECT area_id FROM work_assignments WHERE id=?", (s["assignment_id"],)) if s["assignment_id"] else None
     pend = x.one("SELECT t.id, ar.name FROM area_transfers t JOIN areas ar ON ar.id = t.to_area_id "
                  "WHERE t.employee_id=? AND t.status='PENDING'", (emp,))
+    po = face.pending_out(x, emp, utcnow())
+    assigner = bool(po and (po.get("by_user") == x.uid or po.get("from_area_id") == src["id"]))   # gave the pickup / lunch: may hand him over from anywhere
     if s["presence"] != "INSIDE":
         res = R("DC IN NAHI HUA", "MP DC ke andar nahi hai", "red", True)
     elif s["status"] in ("OUTSIDE_PICKUP", "OUTSIDE_OFFICIAL", "OUTSIDE_OTHER", "OUTSIDE_BREAK"):
         res = R("HANDOVER NAHI HO SAKTA", "MP abhi DC ke bahar hai — wapas aane ke baad", "red", True)
-    elif (po := face.pending_out(x, emp, utcnow())) and po["from_area_id"] != src["id"]:
+    elif po and not may_hand_over(po, src["id"], x.uid):
         # assigned for pickup / lunch: only the area that gave that OUT may hand him over
-        res = R("HANDOVER NAHI HO SAKTA", f"MP {po['out_name']} ke liye assign hai — jisne bheja wahi area handover de sakta hai", "red", True)
+        fa = x.one("SELECT name FROM areas WHERE id=?", (po["from_area_id"],))
+        fu = x.one("SELECT full_name FROM users WHERE id=?", (po.get("by_user"),)) if po.get("by_user") else None
+        who = " / ".join(v for v in (fa and fa["name"], fu and fu["full_name"]) if v) or "bhejne wale"
+        res = R("HANDOVER NAHI HO SAKTA", f"MP {po['out_name']} ke liye assign hai — {who} hi handover de sakta hai", "red", True)
     elif pend:
         res = R("PEHLE SE HANDOVER", f"{pend['name']} ke liye handover pending hai", "amber")
-    elif not (s["status"] == "WORKING" and cur and cur["area_id"] == src["id"]):
+    elif not (assigner or (s["status"] == "WORKING" and cur and cur["area_id"] == src["id"])):
         where = x.one("SELECT name FROM areas WHERE id=?", (cur["area_id"],))["name"] if cur else None
         res = R("HANDOVER NAHI HO SAKTA", f"MP {_name(src)} mein deploy nahi hai" + (f" (abhi {where} mein)" if where else ""), "red", True)
     else:
@@ -94,7 +105,7 @@ def receive(x: Ctx, tid: str, a: dict) -> dict:
     e = face._employee(x, t["employee_id"])
     R = face.result
     po = face.pending_out(x, t["employee_id"], utcnow())
-    if po and po["from_area_id"] != t["from_area_id"]:
+    if po and not may_hand_over(po, t["from_area_id"], t["created_by"]):
         return {"ok": True, "employee": e, "result": R("TAKEOVER NAHI HUA", f"MP {po['out_name']} ke liye assign hai — wo cancel hone ke baad hi", "red", True)}
     if s["presence"] != "INSIDE" or s["status"] not in ("WORKING", "INSIDE_UNASSIGNED"):
         x.ex("UPDATE area_transfers SET status='CANCELLED', decided_by=?, decided_at=?, note=? WHERE id=?",
