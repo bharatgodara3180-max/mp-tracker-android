@@ -14,8 +14,9 @@ import { GateEnrolButton } from '../components/GateEnrol';
 import { useAuth } from '../hooks/useAuth';
 import { isNativeApp } from '../lib/native';
 import GateResult from '../components/GateResult';
-import { CameraHelp, CameraStage, CameraSwitch, playSound, useFaceCapture, type CaptureOutcome, type KioskResult } from '../components/FaceKiosk';
+import { CameraHelp, CameraStage, CameraSwitch, playSound, speakName, useFaceCapture, type CaptureOutcome, type KioskResult } from '../components/FaceKiosk';
 
+const GATE_ROLES = ['gate_operator', 'gate_operator_in', 'gate_operator_out'];
 const DEVICE_KEY = 'mp-face-device';
 const FACING_KEY = 'mp-face-facing';
 const QUEUE_KEY = 'mp-face-queue';
@@ -103,6 +104,7 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
     note: error,
   });
 
+  const roleRef = useRef<string | undefined>(undefined);
   const onCapture = useCallback(async (image: string, snap: string | null): Promise<CaptureOutcome | void> => {
     const scan: FaceScan = { clientEventId: uuid(), capturedAt: new Date().toISOString(), image, snapshot: snap };
     if (store.all().length) await flush();             // older offline scans go first (order matters for the rules)
@@ -117,6 +119,7 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
       const res: KioskResult = r.reply.result ?? { label: r.reply.matched ? `DC ${r.reply.direction}` : 'PEHCHAAN NAHI HUI', tone: r.reply.matched ? 'green' : 'red', alarm: !r.reply.matched };
       playSound(!!res.alarm);
       const e = r.reply.employee;
+      if (r.reply.matched && !res.alarm && e?.name && GATE_ROLES.includes(roleRef.current ?? '')) speakName(e.name);
       setView({ result: res, name: e?.name, code: e?.code, photo: null, note: r.reply.matched ? undefined : r.reply.reason ?? undefined, repeat: r.reply.repeat });
       if (e?.has_photo) void imageUrl(`face/photo/${e.id}`).then((photo) => {   // result shows at once; the photo follows
         if (photo) setView((v) => (v && v.code === e.code ? { ...v, photo } : (URL.revokeObjectURL(photo), v)));
@@ -133,6 +136,7 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
 
   const onReset = useCallback(() => setView((v) => { if (v?.photo) URL.revokeObjectURL(v.photo); return null; }), []);
   const { profile, signOut } = useAuth();
+  roleRef.current = profile?.role;
   const canEnrol = !fixedDevice && !!profile && ['gate_operator', 'admin', 'supervisor', 'ops_manager'].includes(profile.role);
   const [enrolOpen, setEnrolOpen] = useState(false);     // camera pauses while the enrol window uses it
   const cam = useFaceCapture({ enabled: started && !setup && !problem && !enrolOpen, facing, requireBlink: cfg.require_blink, onCapture, onReset });

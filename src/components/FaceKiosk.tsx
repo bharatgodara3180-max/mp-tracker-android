@@ -23,6 +23,17 @@ export function playSound(alarm: boolean) {
   } catch { /* no audio */ }
 }
 
+/** Speaks the employee's name aloud (gate operators only - the caller decides). */
+export function speakName(name?: string | null) {
+  try {
+    if (!name || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(name.trim().toLowerCase());
+    u.lang = 'en-IN'; u.rate = 0.95; u.volume = 1;
+    window.speechSynthesis.cancel();
+    setTimeout(() => window.speechSynthesis.speak(u), 350);   // after the beep
+  } catch { /* no speech */ }
+}
+
 /* ---------- camera + recognition loop ---------- */
 type Phase = 'loading' | 'scanning' | 'busy' | 'result' | 'error';
 /** What the page tells the loop after a scan: not matched -> short popup and a quick retry. */
