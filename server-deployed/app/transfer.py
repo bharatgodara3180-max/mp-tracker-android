@@ -41,9 +41,11 @@ def create(x: Ctx, a: dict) -> dict:
                  "WHERE t.employee_id=? AND t.status='PENDING'", (emp,))
     if s["presence"] != "INSIDE":
         res = R("DC IN NAHI HUA", "MP DC ke andar nahi hai", "red", True)
-    elif face.pending_out(x, emp, utcnow()) or s["status"] in ("OUTSIDE_PICKUP", "OUTSIDE_OFFICIAL", "OUTSIDE_OTHER", "OUTSIDE_BREAK"):
-        po = face.pending_out(x, emp, utcnow())
-        res = R("HANDOVER NAHI HO SAKTA", (f"MP {po['out_name']} ke liye assign hai" if po else "MP abhi bahar gaya hua hai") + " — pehle wo cancel ho / wapas aaye", "red", True)
+    elif s["status"] in ("OUTSIDE_PICKUP", "OUTSIDE_OFFICIAL", "OUTSIDE_OTHER", "OUTSIDE_BREAK"):
+        res = R("HANDOVER NAHI HO SAKTA", "MP abhi DC ke bahar hai — wapas aane ke baad", "red", True)
+    elif (po := face.pending_out(x, emp, utcnow())) and po["from_area_id"] != src["id"]:
+        # assigned for pickup / lunch: only the area that gave that OUT may hand him over
+        res = R("HANDOVER NAHI HO SAKTA", f"MP {po['out_name']} ke liye assign hai — jisne bheja wahi area handover de sakta hai", "red", True)
     elif pend:
         res = R("PEHLE SE HANDOVER", f"{pend['name']} ke liye handover pending hai", "amber")
     elif not (s["status"] == "WORKING" and cur and cur["area_id"] == src["id"]):
@@ -91,12 +93,15 @@ def receive(x: Ctx, tid: str, a: dict) -> dict:
     cur = x.one("SELECT area_id FROM work_assignments WHERE id=?", (s["assignment_id"],)) if s["assignment_id"] else None
     e = face._employee(x, t["employee_id"])
     R = face.result
-    if face.pending_out(x, t["employee_id"], utcnow()) and not dst["out_purpose"]:
-        return {"ok": True, "employee": e, "result": R("TAKEOVER NAHI HUA", "MP kisi OUT ke liye assign hai — wo cancel hone ke baad hi", "red", True)}
+    po = face.pending_out(x, t["employee_id"], utcnow())
+    if po and po["from_area_id"] != t["from_area_id"]:
+        return {"ok": True, "employee": e, "result": R("TAKEOVER NAHI HUA", f"MP {po['out_name']} ke liye assign hai — wo cancel hone ke baad hi", "red", True)}
     if s["presence"] != "INSIDE" or s["status"] not in ("WORKING", "INSIDE_UNASSIGNED"):
         x.ex("UPDATE area_transfers SET status='CANCELLED', decided_by=?, decided_at=?, note=? WHERE id=?",
              (x.uid, now_iso(), f"MP status changed: {s['status']}", tid))
         return {"ok": True, "employee": e, "result": R("HANDOVER CANCEL", f"MP ab {s['status']} hai — dobara handover lijiye", "red", True)}
+    if dst["out_purpose"] and po:
+        return {"ok": True, "employee": e, "result": R("TAKEOVER NAHI HUA", f"MP pehle se {po['out_name']} ke liye assign hai", "red", True)}
     if dst["out_purpose"]:
         # OUT area (Pickup / Lunch / Other): receiving = assigning that OUT to the MP, from the area he is working in
         emp_row = x.one("SELECT employee_code FROM employees WHERE id=?", (t["employee_id"],))
@@ -113,6 +118,8 @@ def receive(x: Ctx, tid: str, a: dict) -> dict:
                             "p_reason": "Area handover received"})
     except AppError as err:
         return {"ok": True, "employee": e, "result": R("TAKEOVER NAHI HUA", err.message, "red", True)}
+    if po:                 # the area that gave the pickup / lunch handed him over: that OUT ends now, he is in the new area
+        face.cancel_out(x, po, "Handover to another area")
     x.ex("UPDATE area_transfers SET status='ACCEPTED', decided_by=?, decided_at=? WHERE id=?", (x.uid, now_iso(), tid))
     audit(x, "AREA_HANDOVER_RECEIVED", "employees", t["employee_id"], None, None, {"transfer": tid, "to": dst["code"]})
     return {"ok": True, "employee": e, "result": R("TAKEOVER HO GAYA", f"MP ab {_name(dst)} mein deploy hai")}

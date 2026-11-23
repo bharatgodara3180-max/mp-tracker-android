@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   base: './',
   plugins: [react()],
+  define: { __APP_VERSION__: JSON.stringify(process.env.APP_VERSION ?? '') },
   server: { port: 5173, host: true, proxy: { '/api': 'http://localhost:8010' } },
   build: { outDir: '../server/static', emptyOutDir: true, sourcemap: false, chunkSizeWarningLimit: 1400 },
 });

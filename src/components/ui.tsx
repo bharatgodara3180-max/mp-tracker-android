@@ -50,6 +50,12 @@ export function ErrorBox({ error }: { error: string | null }) {
   return error ? <div className="error-box" role="alert">{error}</div> : null;
 }
 
+/** Installed app version (set at build time from APP_VERSION by the APK workflow); top-right corner of the screen. Hidden when unknown (web build). */
+export function VersionTag() {
+  if (!__APP_VERSION__) return null;
+  return <span style={{ position: 'fixed', top: 8, right: 12, fontSize: 12, opacity: 0.65, zIndex: 5, pointerEvents: 'none' }}>v{__APP_VERSION__}</span>;
+}
+
 export function Loading({ label = 'Loading…' }: { label?: string }) {
   return <div className="loading"><span className="spinner" /> {label}</div>;
 }

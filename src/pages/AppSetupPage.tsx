@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { isLocalhostServer, isMpLink, BOOT_AUTO, lastLink, markLinkChosen, normalizeLink, normalizeServer, openLinkNow, parseGateLink, saveAppSetup, saveLastLink } from '../lib/native';
-import { Button, ErrorBox } from '../components/ui';
+import { Button, ErrorBox, VersionTag } from '../components/ui';
 
 async function reachable(url: string, token?: string): Promise<{ ok: boolean; status?: number }> {
   try {
@@ -114,6 +114,7 @@ export default function AppSetupPage() {
 
   return (
     <div className="kiosk">
+      <VersionTag />
       <div className="kiosk-card wide">
         <h2>SFXBM</h2>
         <label className="field">

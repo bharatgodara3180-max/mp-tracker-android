@@ -8,7 +8,7 @@ import { get, post } from './lib/api';
 import { fmtTime } from './lib/format';
 import type { AppRole } from './lib/types';
 import { appMode, appServer, BOOT_AUTO, isNativeApp, linkChosenThisRun, markLinkChosen, migrateOnce } from './lib/native';
-import { Button, ErrorBox, Field, Loading, ToastProvider } from './components/ui';
+import { Button, ErrorBox, Field, Loading, ToastProvider, VersionTag } from './components/ui';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const HandoverPage = lazy(() => import('./pages/HandoverPage'));
@@ -157,6 +157,7 @@ function LoginPage({ initialError }: { initialError: string | null }) {
 
   return (
     <div className="center-screen login">
+      <VersionTag />
       <form className="login-card" onSubmit={async (e) => {
         e.preventDefault(); setBusy(true); setErr(null);
         try {

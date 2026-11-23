@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, engine, face, facengine, queries, transfer
+from . import config, db, engine, face, facengine, hrsync, queries, transfer
 from .adapters import AdapterError, get_adapter, order_for_ingest
 from .db import new_id, now_iso, utcnow
 from .engine import AppError, Ctx, Forbidden, log_security_event
@@ -98,12 +98,14 @@ async def _loop(fn: Callable[[], None], every: float, label: str) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    hrsync.ensure()
     bus.attach(asyncio.get_running_loop())
     tasks = []
     if not getattr(app.state, "disable_jobs", False):
         threading.Thread(target=facengine.ready, daemon=True).start()     # load the face models now, so the first scan is not slow
         tasks = [asyncio.create_task(_loop(_sweep_once, config.SWEEP_SECONDS, "sweep")),
-                 asyncio.create_task(_loop(_backup_once, 3600, "backup"))]
+                 asyncio.create_task(_loop(_backup_once, 3600, "backup")),
+                 asyncio.create_task(_loop(hrsync.auto_once, 300, "hrsync"))]     # HR sheet -> employees, every 5 minutes (after the first manual sync)
     yield
     for t in tasks:
         t.cancel()
@@ -493,7 +495,23 @@ def _upsert(u: dict, table: str, body: dict, rid: str | None) -> dict:
 @app.get("/api/admin/employees")
 def admin_employees(u: dict = Depends(current_user)):
     require_roles(u, "admin", "ops_manager", action="admin_employees")
-    return look(u, lambda x: x.rows("SELECT * FROM employees ORDER BY employee_code"))
+    return look(u, lambda x: x.rows("SELECT e.*, h.department, h.block, h.weekoff, h.shift_code AS hr_shift, h.hr_status "
+                                    "FROM employees e LEFT JOIN employee_hr h ON h.employee_id = e.id ORDER BY e.employee_code"))
+
+
+@app.get("/api/admin/hr-sync")
+def hr_sync_status(u: dict = Depends(current_user)):
+    require_roles(u, "admin", action="hr_sync_status")
+    with db.read() as c:
+        on = engine.setting(Ctx(c, u), "hr_sync_enabled", False)
+    return {"auto": bool(on), "running": hrsync.STATE["running"], "last": hrsync.STATE["last"]}
+
+
+@app.post("/api/admin/hr-sync")
+def hr_sync_run(body: dict, u: dict = Depends(current_user)):
+    """Admin: pull the employee sheet now. dry=true only reports what would change. force=true allows a big deactivation."""
+    require_roles(u, "admin", action="hr_sync_run")
+    return hrsync.run(u, dry=bool(body.get("dry", True)), force=bool(body.get("force")), source="manual")
 
 
 for _t in CONFIG_TABLES:
@@ -951,7 +969,9 @@ def face_assign_out(body: dict, u: dict = Depends(current_user)):
 
 @app.post("/api/transfer")
 def transfer_create(body: dict, u: dict = Depends(current_user)):
-    return act(u, lambda x: transfer.create(x, body or {}))
+    body = body or {}
+    face.prepare(body)          # face picture -> signature (same as deploy / assign-out); ID-card scans pass through untouched
+    return act(u, lambda x: transfer.create(x, body))
 
 
 @app.get("/api/transfer/{direction}")

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HR Sheet Sync</title>
+<style>
+:root{--bg:#0d1118;--panel:#161b26;--line:#2b3446;--tx:#e8ecf4;--mut:#8b96ab;--ok:#2fd27a;--bad:#ff5d5d;--amb:#ffb02e;--blue:#4c9aff}
+@media (prefers-color-scheme:light){:root{--bg:#f4f6fa;--panel:#fff;--line:#d5dbe6;--tx:#161b26;--mut:#5d6779}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px system-ui,sans-serif;padding:16px;max-width:760px;margin-inline:auto}
+h1{font-size:20px;margin:0 0 4px}p.s{color:var(--mut);margin:0 0 16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+button{font:inherit;padding:9px 14px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--tx);cursor:pointer}
+button.p{background:var(--blue);border-color:var(--blue);color:#fff}button:disabled{opacity:.5}
+input[type=text],input[type=password]{font:inherit;padding:9px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--tx);width:100%;margin-bottom:8px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.k{border:1px solid var(--line);border-radius:10px;padding:10px}.k b{display:block;font-size:22px}.k span{color:var(--mut);font-size:12px}
+.err{color:var(--bad)}.ok{color:var(--ok)}.amb{color:var(--amb)}ul{margin:4px 0 0;padding-left:18px;color:var(--mut);font-size:13px}.mut{color:var(--mut)}
+</style></head><body>
+<h1>HR Sheet Sync</h1><p class="s">MP_TRACKER_HR SHEET &rarr; MP Tracker employees (shift, department, designation, block). Kuch delete nahi hota, faces safe rehte hain.</p>
+<div id="login" class="card" hidden><b>Admin login</b><br><br><input id="u" type="text" placeholder="Username" autocomplete="username"><input id="pw" type="password" placeholder="Password" autocomplete="current-password"><button class="p" id="lg">Login</button> <span id="lm" class="err"></span></div>
+<div id="main" hidden>
+ <div class="card"><div class="row"><button id="dry" class="p">1) Dry run (kuch nahi badlega)</button><button id="go">2) Sync now</button>
+ <label class="row mut"><input type="checkbox" id="force"> Force (bahut saare inactive hone ki rok hatao)</label></div>
+ <p class="mut" id="auto" style="margin:10px 0 0"></p></div>
+ <div id="out"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);let T=null;try{T=localStorage.getItem("mp-token")}catch(e){}
+const api=async(m,p,b)=>{const r=await fetch("api/"+p,{method:m,headers:{"Content-Type":"application/json",...(T?{"X-MP-Token":T}:{})},body:b?JSON.stringify(b):undefined});
+ const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error((j.detail&&j.detail.message)||r.statusText),{status:r.status});return j};
+const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const list=(t,a)=>a&&a.length?`<div style="margin-top:8px"><b>${t}</b><ul>${a.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:"";
+function show(r){if(!r){$("out").innerHTML="";return}
+ const k=(n,l)=>`<div class="k"><b>${n??0}</b><span>${l}</span></div>`,s=r.sample||{};
+ $("out").innerHTML=`<div class="card"><div class="${r.ok?"ok":"err"}"><b>${r.ok?"✔ "+esc(r.note||"Ho gaya"):"✖ "+esc(r.error)}</b> <span class="mut">${r.dry?"(dry run)":""} · ${esc(r.at||"")} · ${r.seconds}s</span></div>
+ ${r.sheet_rows!=null?`<p class="mut">Sheet me ${r.sheet_rows} employees mile.</p>`:""}
+ <div class="g">${k(r.new,"naye add")}${k(r.updated,"details update")}${k(r.deactivated,"inactive")}${k(r.reactivated,"wapas active")}${k(r.details_changed,"dept/block/weekoff")}${k(r.new_inactive_not_added,"naye inactive (add nahi)")}</div>
+ ${(r.skipped_deactivate||[]).length?list("Inactive nahi kiye (abhi):",r.skipped_deactivate.map(x=>x.code+" "+x.name+" — "+x.why)):""}
+ ${r.unknown_shift_codes&&Object.keys(r.unknown_shift_codes).length?list("Ye shift code MP Tracker me nahi hain (shift nahi badli):",Object.entries(r.unknown_shift_codes).map(([a,b])=>a+" — "+b+" employees")):""}
+ ${r.backup_warning?`<p class="amb">Backup warning: ${esc(r.backup_warning)}</p>`:""}
+ ${list("Naye (pehle 15):",s.new)}${list("Inactive hone wale (pehle 15):",s.deactivate)}${list("Wapas active:",s.reactivate)}${list("Naam badlenge:",s.renamed)}</div>`}
+async function status(){try{const j=await api("GET","admin/hr-sync");$("auto").textContent=j.auto?"Auto sync chalu hai — har 5 minute me sheet se data aata hai.":"Auto sync abhi band hai — pehla Sync now chalate hi chalu ho jayega.";show(j.last)}catch(e){fail(e)}}
+function fail(e){if(e.status===401||e.status===403){$("main").hidden=true;$("login").hidden=false;if(e.status===403)$("lm").textContent="Sirf admin login chalega"}else $("out").innerHTML=`<div class="card err">${esc(e.message)}</div>`}
+async function run(dry){$("dry").disabled=$("go").disabled=true;$("out").innerHTML='<div class="card mut">Sheet se data aa raha hai…</div>';
+ try{show(await api("POST","admin/hr-sync",{dry,force:$("force").checked}))}catch(e){fail(e)}$("dry").disabled=$("go").disabled=false;status()}
+$("dry").onclick=()=>run(true);$("go").onclick=()=>{if(confirm("Sheet ka data MP Tracker me abhi lagana hai? (Pehle dry run dekh liya?) Database ki backup apne-aap ban jayegi."))run(false)};
+$("lg").onclick=async()=>{$("lm").textContent="";try{const j=await api("POST","auth/login",{username:$("u").value,password:$("pw").value});T=j.token;try{localStorage.setItem("mp-token",T)}catch(e){}$("login").hidden=true;$("main").hidden=false;status()}catch(e){$("lm").textContent=e.message}};
+$("main").hidden=false;status();
+</script></body></html>
