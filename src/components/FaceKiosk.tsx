@@ -23,14 +23,17 @@ export function playSound(alarm: boolean) {
   } catch { /* no audio */ }
 }
 
-/** Speaks the employee's name aloud (gate operators only - the caller decides). */
+/** Speaks the employee's name aloud in the Google Hindi voice, speed 0.85 (gate operators only - the caller decides). */
 export function speakName(name?: string | null) {
   try {
     if (!name || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     const u = new SpeechSynthesisUtterance(name.trim().toLowerCase());
-    u.lang = 'en-IN'; u.rate = 0.95; u.volume = 1;
+    const vs = window.speechSynthesis.getVoices();
+    const v = vs.find((x) => /google/i.test(x.name) && /hindi|हिन्दी|^hi/i.test(`${x.name} ${x.lang}`)) ?? vs.find((x) => /^hi/i.test(x.lang));
+    if (v) u.voice = v;
+    u.lang = v?.lang ?? 'hi-IN'; u.rate = 0.85; u.volume = 1;
     window.speechSynthesis.cancel();
-    setTimeout(() => window.speechSynthesis.speak(u), 350);   // after the beep
+    window.speechSynthesis.speak(u);
   } catch { /* no speech */ }
 }
 

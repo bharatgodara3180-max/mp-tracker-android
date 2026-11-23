@@ -117,9 +117,9 @@ export default function FaceKioskPage({ fixedDevice }: { fixedDevice?: string })
     const r = await sendOne(scan);
     if (r.ok) {
       const res: KioskResult = r.reply.result ?? { label: r.reply.matched ? `DC ${r.reply.direction}` : 'PEHCHAAN NAHI HUI', tone: r.reply.matched ? 'green' : 'red', alarm: !r.reply.matched };
-      playSound(!!res.alarm);
       const e = r.reply.employee;
-      if (r.reply.matched && !res.alarm && e?.name && GATE_ROLES.includes(roleRef.current ?? '')) speakName(e.name);
+      if (r.reply.matched && !res.alarm && e?.name && GATE_ROLES.includes(roleRef.current ?? '')) speakName(e.name);   // gate operator: naam hi bolta hai, beep nahi
+      else playSound(!!res.alarm);
       setView({ result: res, name: e?.name, code: e?.code, photo: null, note: r.reply.matched ? undefined : r.reply.reason ?? undefined, repeat: r.reply.repeat });
       if (e?.has_photo) void imageUrl(`face/photo/${e.id}`).then((photo) => {   // result shows at once; the photo follows
         if (photo) setView((v) => (v && v.code === e.code ? { ...v, photo } : (URL.revokeObjectURL(photo), v)));
