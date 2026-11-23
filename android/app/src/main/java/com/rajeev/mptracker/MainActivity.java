@@ -14,6 +14,14 @@ public class MainActivity extends BridgeActivity {
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().addJavascriptInterface(new NotifyBridge(this), "SFXBMNative");
         }
+        // every page opened in the app (also server pages like the login) can read the installed version: "SFXBM/<version>" in the user agent
+        try {
+            String ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                android.webkit.WebSettings ws = getBridge().getWebView().getSettings();
+                ws.setUserAgentString(ws.getUserAgentString() + " SFXBM/" + ver);
+            }
+        } catch (Exception ignored) { }
         // camera result sounds without an extra tap
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);

@@ -2,7 +2,7 @@
    Gate / Deploy apps open instantly (the 7 MB models are downloaded only once).
    Live data (/api/) is never cached. */
 const MODELS = 'mp-models-v1';
-const ASSETS = 'mp-assets-v11';
+const ASSETS = 'mp-assets-v12';
 const SHELL = 'mp-shell-v1';
 const MODEL_FILES = [
   'tiny_face_detector_model-weights_manifest.json', 'tiny_face_detector_model.bin',

@@ -52,8 +52,9 @@ export function ErrorBox({ error }: { error: string | null }) {
 
 /** Installed app version (set at build time from APP_VERSION by the APK workflow); top-right corner of the screen. Hidden when unknown (web build). */
 export function VersionTag() {
-  if (!__APP_VERSION__) return null;
-  return <span style={{ position: 'fixed', top: 8, right: 12, fontSize: 12, opacity: 0.65, zIndex: 5, pointerEvents: 'none' }}>v{__APP_VERSION__}</span>;
+  const v = __APP_VERSION__ || /SFXBM\/([\d.]+)/.exec(navigator.userAgent)?.[1] || '';
+  if (!v) return null;
+  return <span style={{ position: 'fixed', top: 8, right: 12, fontSize: 12, opacity: 0.65, zIndex: 5, pointerEvents: 'none' }}>v{v}</span>;
 }
 
 export function Loading({ label = 'Loading…' }: { label?: string }) {
