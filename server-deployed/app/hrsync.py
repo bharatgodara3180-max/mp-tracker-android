@@ -98,9 +98,7 @@ def plan(x: Ctx, recs: list[dict]) -> dict:
                          "skip_deactivate": [], "skip_new_inactive": 0, "unknown_shift": {}, "same": 0}
     for r in recs:
         e = emps.get(r["code"])
-        sid = shifts.get(r["shift"]) if r["shift"] else None
-        if r["shift"] and not sid:
-            p["unknown_shift"][r["shift"]] = p["unknown_shift"].get(r["shift"], 0) + 1
+        sid = None   # shift now follows the DC IN time (engine.shift_for_entry), not the sheet / employee master
         if not e:
             if r["active"] is False:
                 p["skip_new_inactive"] += 1
@@ -248,6 +246,10 @@ def run(user: dict | None = None, dry: bool = True, force: bool = False, source:
 def ensure() -> None:
     with db.write(notify=False) as c:
         c.execute(_DDL)
+        done = c.execute("SELECT 1 FROM settings WHERE key='shift_by_entry_cleared'").fetchone()
+        if not done:   # one time: clear every employee's fixed shift
+            c.execute("UPDATE employees SET default_shift_id=NULL WHERE default_shift_id IS NOT NULL")
+            c.execute("INSERT INTO settings(key, value) VALUES ('shift_by_entry_cleared', 'true')")
 
 
 def auto_once() -> None:

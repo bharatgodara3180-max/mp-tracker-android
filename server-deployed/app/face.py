@@ -20,7 +20,7 @@ import numpy as np
 
 from . import assetdesk, config, facengine
 from .db import dumps, iso, new_id, now_iso, parse_ts, utcnow
-from .engine import (AppError, BadInput, Conflict, Ctx, NotFound, _hm, assign_work, audit, break_allowed, business_date,
+from .engine import (shift_for_entry, AppError, BadInput, Conflict, Ctx, NotFound, _hm, assign_work, audit, break_allowed, business_date,
                      auto_resolve, employee_by_scan, lunch_taken, mins, plan_pickup, process_gate_event, raise_alert, require, s_int, setting, shift_end_at, site_tz)
 
 DIM = facengine.DIM
@@ -315,7 +315,7 @@ def _shift_start(x: Ctx, shift_id: str | None, t: datetime) -> datetime | None:
 def _plan_in(x: Ctx, s: dict, emp: str, t: datetime) -> dict:
     """Result for a DC IN, decided before the gate event is applied."""
     if s["status"] in ("NOT_CHECKED_IN", "SHIFT_ENDED") or not s["attendance_id"]:
-        shift_id = (x.one("SELECT default_shift_id FROM employees WHERE id=?", (emp,)) or {}).get("default_shift_id")
+        shift_id = shift_for_entry(x, t) or (x.one("SELECT default_shift_id FROM employees WHERE id=?", (emp,)) or {}).get("default_shift_id")
         start = _shift_start(x, shift_id, t)
         if start:
             late = (t - start).total_seconds() / 60
