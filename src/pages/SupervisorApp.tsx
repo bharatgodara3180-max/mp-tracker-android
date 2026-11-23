@@ -11,7 +11,7 @@ import { useRefData } from '../hooks/useRefData';
 import { useLiveQuery } from '../hooks/useLive';
 import { fmtTime } from '../lib/format';
 import type { Area, MpLive } from '../lib/types';
-import { Button, Loading, useToast } from '../components/ui';
+import { Button, Loading, useToast, VersionTag } from '../components/ui';
 import { InstallAppButton } from '../components/InstallApp';
 import { playSound } from '../components/FaceKiosk';
 import { ScanPanel, type ScanId, type ScanReply } from '../components/ScanPanel';
@@ -41,7 +41,11 @@ export default function SupervisorApp() {
   // OUT options come from Admin -> Areas (OUT type); without any, plain Pickup / Lunch / Other
   // Pickup is not an OUT-assign option: MPs are deployed into the Pickup area instead
   const outOpts = ref.outOptions.filter((o) => o.out_purpose !== 'PICKUP');
-  const pickAreas = [...ref.workAreas, ...ref.outOptions.filter((o) => o.out_purpose === 'PICKUP')];
+  const allAreas = [...ref.workAreas, ...ref.outOptions.filter((o) => o.out_purpose === 'PICKUP')];   // handover: every area, incl. Pickup
+  // the areas the admin ticked for this supervisor (none ticked = all)
+  const mine = useLiveQuery<{ area_ids: string[] }>(() => get('supervisor/my-areas'), [], []);
+  const pickAreas = allAreas.filter((a) => { const m = mine.data?.area_ids ?? []; return !m.length || m.includes(a.id); });
+  const toast = useToast();
   const outChoices: { key: string; label: string; purpose: OutPurpose; areaId?: string }[] = outOpts.length
     ? outOpts.map((o) => ({ key: o.id, label: o.name, purpose: (o.out_purpose ?? 'OTHER') as OutPurpose, areaId: o.id }))
     : [{ key: 'LUNCH', label: 'Lunch', purpose: 'LUNCH' }, { key: 'OTHER', label: 'Other', purpose: 'OTHER' }];
@@ -62,6 +66,10 @@ export default function SupervisorApp() {
   // choosing a work area opens Deploy with Manual type ready
   const pickArea = (id: string) => {
     setAction('deploy');
+    // a supervisor-ID employee is deployed into the chosen area by himself (auto DC IN first when he is not inside)
+    post<{ deployed?: boolean; reason?: string }>('supervisor/self-deploy', { area_id: id })
+      .then((r) => { if (r && r.deployed === false && r.reason) toast('err', r.reason); void areaLive.refresh(); })
+      .catch((e) => toast('err', e instanceof Error ? e.message : String(e)));
     try { localStorage.setItem(areaKey, id); localStorage.setItem('mp-scan-mode', 'manual'); } catch { /* ignore */ }
     setArea(id);
   };
@@ -72,6 +80,7 @@ export default function SupervisorApp() {
 
   if (!areaRow) return (
     <div className="kiosk sup-pick">
+      <VersionTag />
       <header className="sup-top"><strong>Namaste, {profile?.full_name}</strong><span className="spacer" />
         <button className="btn btn-ghost btn-sm" onClick={logout}>{Icon.logout} Logout</button></header>
       <h2 className="sup-title">Apna Work Area chuniye</h2>
@@ -96,6 +105,7 @@ export default function SupervisorApp() {
             ? r.out_area_id === area && !!r.out_state
             : r.status === 'WORKING' && r.area_id === area && r.out_state !== 'ASSIGNED')).length}</b> deployed</span>
         <GateEnrolButton inline onOpenChange={setEnrolOpen} />
+        {__APP_VERSION__ && <span className="muted small" title="Installed app version">v{__APP_VERSION__}</span>}
         <button className="icon-btn small" onClick={() => { if (confirm('Logout karna hai?')) logout(); }} title="Logout">{Icon.logout}</button>
       </header>
       <div className="sup-icons">
@@ -122,7 +132,7 @@ export default function SupervisorApp() {
         : 'Gate pe DC OUT sirf assign hue OUT se hoga. 9 ghante baad shift-end OUT ke liye assign ki zarurat nahi.'}</p>
 
       {sheet === 'deployment' && <DeploymentSheet myArea={area} areas={ref.workAreas} onClose={() => setSheet(null)} />}
-      {sheet === 'handover' && <HandoverSheet myArea={areaRow} areas={ref.workAreas} onClose={() => setSheet(null)} />}
+      {sheet === 'handover' && <HandoverSheet myArea={areaRow} areas={allAreas} onClose={() => setSheet(null)} />}
       {sheet === 'inbox' && <InboxSheet myArea={areaRow} items={inbox.data ?? []} onChanged={() => void inbox.refresh()} onClose={() => setSheet(null)} />}
     </div>
   );
@@ -137,39 +147,82 @@ function SheetFrame({ title, onClose, children }: { title: string; onClose: () =
   );
 }
 
-/* ---------- current deployment, area-wise ---------- */
+/* ---------- current deployment, area-wise (tap a row -> popup with the list, tap a name -> photo) ---------- */
 function DeploymentSheet({ myArea, areas, onClose }: { myArea: string; areas: Area[]; onClose: () => void }) {
-  const live = useLiveQuery<{ rows: MpLive[] }>(() => get('live'), [], []);
-  const [open, setOpen] = useState<string | null>(myArea);
+  const live = useLiveQuery<{ rows: MpLive[] }>(() => get('live'), [], [], { pollMs: 5000 });
+  const [pop, setPop] = useState<{ title: string; ids: string[] } | null>(null);
+  const [sel, setSel] = useState<MpLive | null>(null);
   const rows = live.data?.rows ?? [];
-  const working = (id: string) => rows.filter((r) => r.status === 'WORKING' && r.area_id === id);
-  const unassigned = rows.filter((r) => r.status === 'INSIDE_UNASSIGNED');
+  const assigned = (r: MpLive) => r.out_state === 'ASSIGNED';
+  const working = (id: string) => rows.filter((r) => r.status === 'WORKING' && r.area_id === id && !assigned(r));
+  const unassigned = rows.filter((r) => r.status === 'INSIDE_UNASSIGNED' && !assigned(r));
+  const asgPickup = rows.filter((r) => assigned(r) && !!r.pickup_id);
+  const asgLunch = rows.filter((r) => assigned(r) && !r.pickup_id);
+  const onPickup = rows.filter((r) => ['OUTSIDE_PICKUP', 'OUTSIDE_OFFICIAL', 'OUTSIDE_OTHER'].includes(r.status));
+  const onLunch = rows.filter((r) => r.status === 'OUTSIDE_BREAK' || r.status === 'ON_BREAK');
   const ordered = [...areas].sort((a, b) => (a.id === myArea ? -1 : b.id === myArea ? 1 : a.name.localeCompare(b.name)));
+  const tm = (t: string | null) => (t ? new Date(t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '');
+  const detail = (r: MpLive) => [r.area_name, r.current_task, r.out_area_name && `→ ${r.out_area_name}`, r.pickup_destination, r.route_ref,
+    r.expected_return_at && `wapsi ${tm(r.expected_return_at)}`].filter(Boolean).join(' · ');
+  const row = (key: string, title: string, list: MpLive[], mine = false) => (
+    <div key={key} className={`dep-area ${mine ? 'mine' : ''}`}>
+      <button className="dep-head" onClick={() => setPop({ title, ids: list.map((r) => r.employee_id) })}>
+        <b>{title}</b>{mine && <span className="pill tone-blue">Mera area</span>}<span className="spacer" />
+        <span className="dep-count">{list.length}</span>
+      </button>
+    </div>);
+  const shown = pop ? pop.ids.map((id) => rows.find((r) => r.employee_id === id)).filter((r): r is MpLive => !!r) : [];
+  const ov: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 };
+  const box: React.CSSProperties = { background: '#161b26', border: '1px solid #2b3446', borderRadius: 12, width: 'min(560px,100%)', maxHeight: '85vh', display: 'flex', flexDirection: 'column', color: '#e8ecf4' };
   return (
     <SheetFrame title="Current deployment (area-wise)" onClose={onClose}>
       {!live.data ? <Loading /> : <>
-        {ordered.map((a) => {
-          const list = working(a.id);
-          return (
-            <div key={a.id} className={`dep-area ${a.id === myArea ? 'mine' : ''}`}>
-              <button className="dep-head" onClick={() => setOpen(open === a.id ? null : a.id)}>
-                <b>{a.name}</b>{a.id === myArea && <span className="pill tone-blue">Mera area</span>}<span className="spacer" />
-                <span className="dep-count">{list.length}</span>
-              </button>
-              {open === a.id && <ul className="dep-list">{list.length ? list.map((r) => <li key={r.employee_id}>
-                <span>{r.full_name} <span className="mono muted">{r.employee_code}</span></span>
-                <span className="muted small">{r.current_task ? `${r.current_task} · ` : ''}{fmtTime(r.status_since)} se</span></li>)
-                : <li className="muted">Koi MP nahi</li>}</ul>}
-            </div>);
-        })}
-        <div className="dep-area">
-          <button className="dep-head" onClick={() => setOpen(open === 'un' ? null : 'un')}><b>DC ke andar — kisi area mein nahi</b><span className="spacer" /><span className="dep-count">{unassigned.length}</span></button>
-          {open === 'un' && <ul className="dep-list">{unassigned.map((r) => <li key={r.employee_id}><span>{r.full_name} <span className="mono muted">{r.employee_code}</span></span>
-            <span className="muted small">{fmtTime(r.status_since)} se</span></li>)}</ul>}
-        </div>
+        {ordered.map((a) => row(a.id, a.name, working(a.id), a.id === myArea))}
+        {row('aP', 'ASSIGNED FOR PICKUP', asgPickup)}
+        {row('aL', 'ASSIGNED FOR LUNCH', asgLunch)}
+        {row('oP', 'ON PICKUP', onPickup)}
+        {row('oL', 'ON LUNCH', onLunch)}
+        {row('un', 'DC ke andar — kisi area mein nahi', unassigned)}
       </>}
+      {pop && <div style={{ ...ov, zIndex: 60 }} onClick={() => setPop(null)}>
+        <div style={box} onClick={(e) => e.stopPropagation()}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderBottom: '1px solid #2b3446' }}>
+            <b style={{ flex: 1 }}>{pop.title}</b><span className="dep-count">{shown.length}</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setPop(null)}>✕</button>
+          </div>
+          <div style={{ overflowY: 'auto', padding: '6px 10px 12px' }}>
+            {shown.length ? shown.map((r) => (
+              <button key={r.employee_id} onClick={() => setSel(r)} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 0, borderBottom: '1px solid #232b3b', padding: '9px 4px', color: 'inherit', cursor: 'pointer' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}><b>{r.full_name}</b><span className="mono muted">{r.employee_code}</span>
+                  <span style={{ flex: 1 }} /><span className="muted small">{fmtTime(r.status_since)} se</span></div>
+                {detail(r) && <div className="muted small" style={{ marginTop: 2 }}>{detail(r)}</div>}
+              </button>)) : <p className="muted" style={{ padding: 12 }}>Koi MP nahi</p>}
+          </div>
+        </div>
+      </div>}
+      {sel && <div style={{ ...ov, zIndex: 70 }} onClick={() => setSel(null)}>
+        <div style={{ ...box, width: 'min(320px,100%)', alignItems: 'center', padding: 16, gap: 8 }} onClick={(e) => e.stopPropagation()}>
+          <BigPhoto id={sel.employee_id} />
+          <b style={{ fontSize: 18 }}>{sel.full_name}</b><span className="mono muted">{sel.employee_code}</span>
+          {detail(sel) && <span className="muted small">{detail(sel)}</span>}
+          <button className="btn btn-ghost btn-sm" onClick={() => setSel(null)}>Band karo</button>
+        </div>
+      </div>}
     </SheetFrame>
   );
+}
+
+function BigPhoto({ id }: { id: string }) {
+  const [state, setState] = useState<{ url: string | null; done: boolean }>({ url: null, done: false });
+  useEffect(() => {
+    let u: string | null = null; let alive = true;
+    setState({ url: null, done: false });
+    void imageUrl(`face/photo/${id}`).then((x) => { u = x; if (alive) setState({ url: x, done: true }); else if (x) URL.revokeObjectURL(x); })
+      .catch(() => { if (alive) setState({ url: null, done: true }); });
+    return () => { alive = false; if (u) URL.revokeObjectURL(u); };
+  }, [id]);
+  return state.url ? <img src={state.url} alt="" style={{ width: 240, maxWidth: '100%', borderRadius: 10, objectFit: 'cover' }} />
+    : <div className="muted" style={{ padding: '40px 0' }}>{state.done ? 'Photo nahi hai' : 'Photo aa rahi hai…'}</div>;
 }
 
 /* ---------- give an MP of my area to another area ---------- */
