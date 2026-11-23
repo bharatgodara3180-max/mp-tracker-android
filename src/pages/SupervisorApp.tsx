@@ -19,12 +19,13 @@ import { GateEnrolButton } from '../components/GateEnrol';
 
 interface Transfer { id: string; employee_id: string; employee_code: string; full_name: string; from_area: string; from_code: string;
   to_area: string; to_code: string; created_at: string; given_by: string | null; has_photo: boolean }
-type Sheet = null | 'deployment' | 'handover' | 'inbox';
+type Sheet = null | 'deployment' | 'handover' | 'inbox' | 'early';
 type OutPurpose = 'PICKUP' | 'LUNCH' | 'OTHER';
 
 const Icon = {
   deployment: <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>,
   handover: <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h13l-3-3" /><path d="M20 16H7l3 3" /></svg>,
+  early: <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>,
   bell: <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></svg>,
   logout: <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>,
 };
@@ -114,6 +115,7 @@ export default function SupervisorApp() {
       <div className="sup-icons">
         <button className="round-btn" onClick={() => setSheet('deployment')} title="Current deployment">{Icon.deployment}<span>Deploy list</span></button>
         <button className="round-btn" onClick={() => setSheet('handover')} title="Handover">{Icon.handover}<span>Handover</span></button>
+        <button className="round-btn" onClick={() => setSheet('early')} title="Request for Early Leave">{Icon.early}<span>Early Leave</span></button>
         <button className="round-btn" onClick={() => setSheet('inbox')} title="Notifications">{Icon.bell}<span>Receive</span>
           {pending > 0 && <i className="badge">{pending}</i>}</button>
       </div>
@@ -136,6 +138,7 @@ export default function SupervisorApp() {
 
       {sheet === 'deployment' && <DeploymentSheet myArea={area} areas={ref.workAreas} onClose={() => setSheet(null)} />}
       {sheet === 'handover' && <HandoverSheet myArea={areaRow} areas={allAreas} onClose={() => setSheet(null)} />}
+      {sheet === 'early' && <EarlyLeaveSheet onClose={() => setSheet(null)} />}
       {sheet === 'inbox' && <InboxSheet myArea={areaRow} items={inbox.data ?? []} onChanged={() => void inbox.refresh()} onClose={() => setSheet(null)} />}
     </div>
   );
@@ -226,6 +229,38 @@ function BigPhoto({ id }: { id: string }) {
   }, [id]);
   return state.url ? <img src={state.url} alt="" style={{ width: 240, maxWidth: '100%', borderRadius: 10, objectFit: 'cover' }} />
     : <div className="muted" style={{ padding: '40px 0' }}>{state.done ? 'Photo nahi hai' : 'Photo aa rahi hai…'}</div>;
+}
+
+/* ---------- request early leave for an MP: Ops Manager / Admin approve, then the MP can scan OUT ---------- */
+interface EarlyRow { id: string; employee_code: string; full_name: string; reason: string; status: string; used_at: string | null }
+function EarlyLeaveSheet({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
+  const [emp, setEmp] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const mine = useLiveQuery<{ rows: EarlyRow[] }>(() => get('early-leave'), [], [], { pollMs: 15000 });
+  const submit = async () => {
+    if (!emp.trim() || reason.trim().length < 3) { toast('err', 'Emp ID aur reason dono likhiye'); return; }
+    setBusy(true);
+    try {
+      const r = await post<{ employee: { name: string } }>('early-leave', { emp_id: emp.trim(), reason: reason.trim() });
+      toast('ok', `${r.employee.name} ki request bhej di — Ops Manager / Admin approve karenge`);
+      setEmp(''); setReason(''); void mine.refresh();
+    } catch (e) { toast('err', (e as Error).message); }
+    setBusy(false);
+  };
+  return (
+    <SheetFrame title="Request for Early Leave" onClose={onClose}>
+      <input className="route-input" style={{ width: '100%' }} value={emp} onChange={(e) => setEmp(e.target.value)} placeholder="Enter Emp ID" autoCapitalize="characters" />
+      <textarea className="route-input" style={{ width: '100%', minHeight: 80, marginTop: 8 }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason" />
+      <Button variant="primary" busy={busy} onClick={() => void submit()}>Submit</Button>
+      {(mine.data?.rows ?? []).length > 0 && <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
+        <b className="small">Meri requests (24 ghante)</b>
+        {(mine.data?.rows ?? []).map((r) => <div key={r.id} className="small">
+          <b>{r.full_name}</b> <span className="mono muted">{r.employee_code}</span> — {r.status === 'APPROVED' ? (r.used_at ? 'Approved · nikal gaya' : 'Approved ✔ (gate se ja sakta hai)') : r.status === 'REJECTED' ? 'Rejected ✖' : 'Pending…'}</div>)}
+      </div>}
+    </SheetFrame>
+  );
 }
 
 /* ---------- give an MP of my area to another area ---------- */

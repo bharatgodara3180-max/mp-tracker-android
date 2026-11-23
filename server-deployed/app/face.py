@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from . import assetdesk, config, facengine
+from . import assetdesk, config, earlyleave, facengine
 from .db import dumps, iso, new_id, now_iso, parse_ts, utcnow
 from .engine import (shift_for_entry, AppError, BadInput, Conflict, Ctx, NotFound, _hm, assign_work, audit, break_allowed, business_date,
                      auto_resolve, employee_by_scan, lunch_taken, mins, plan_pickup, process_gate_event, raise_alert, require, s_int, setting, shift_end_at, site_tz)
@@ -435,6 +435,12 @@ def _plan_out(x: Ctx, s: dict, emp: str, t: datetime) -> tuple[str | None, dict,
                    "ORDER BY created_at DESC LIMIT 1", (emp, iso(t)))
     if permit:
         return "LUNCH", result("DC OUT", "LUNCH", "blue"), permit["id"]
+    el = earlyleave.approved_for(x, emp, t)
+    if el:   # supervisor raised an early-leave request and Ops Manager / Admin approved it
+        h = _held(x, emp)
+        if h and h["total"] > 0:
+            return None, result("DC OUT REJECTED", "Return Device First" + _ids(h), "red", True), None
+        return "SHIFT_END", result("DC OUT", "EARLY LEAVE · approved", "blue"), "EL:" + el
     att = x.one("SELECT checked_in_at FROM shift_attendance WHERE id=?", (s["attendance_id"],)) if s["attendance_id"] else None
     since = att["checked_in_at"] if att else None
     worked = (t - parse_ts(since)).total_seconds() / 60 if since else 0
@@ -534,8 +540,12 @@ def scan(x: Ctx, a: dict) -> dict:
                 "direction": "OUT" if s["presence"] == "INSIDE" else "IN", "result": wg}
     if s["presence"] == "INSIDE":
         direction = "OUT"
-        if sup:
-            (purpose, res), permit = _sup_out(x, s, emp, t), None
+        if sup:   # supervisor-ID employee: free in/out unless a device is still issued on his name (even for official work)
+            h = _held(x, emp)
+            if h and h["total"] > 0:
+                purpose, res, permit = None, result("DC OUT REJECTED", "Return Device First" + _ids(h), "red", True), None
+            else:
+                (purpose, res), permit = _sup_out(x, s, emp, t), None
         else:
             purpose, res, permit = _plan_out(x, s, emp, t)
         if purpose is None:   # not allowed out: logged for review, state untouched
@@ -561,6 +571,8 @@ def scan(x: Ctx, a: dict) -> dict:
     if r.get("processing_status") not in ("APPLIED", "DUPLICATE_SUBMISSION"):
         # e.g. an old offline scan arriving after a newer one (OUT_OF_ORDER) -> flagged for review
         res = result(f"DC {direction}", f"{r.get('processing_status')}: {r.get('note') or ''}".strip(": "), "red", True)
+    elif permit and permit.startswith("EL:") and r.get("processing_status") == "APPLIED":
+        earlyleave.mark_used(x, permit[3:], t, r.get("gate_event_id"))
     elif permit and r.get("processing_status") == "APPLIED":
         x.ex("UPDATE exit_permits SET status='USED', used_at=?, gate_event_id=? WHERE id=?", (iso(t), r["gate_event_id"], permit))
     if sup and direction == "OUT" and purpose == "OFFICIAL" and r.get("processing_status") == "APPLIED":

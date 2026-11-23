@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, engine, face, facengine, hrsync, queries, transfer
+from . import config, db, earlyleave, engine, face, facengine, hrsync, queries, transfer
 from .adapters import AdapterError, get_adapter, order_for_ingest
 from .db import new_id, now_iso, utcnow
 from .engine import AppError, Ctx, Forbidden, log_security_event
@@ -99,6 +99,8 @@ async def _loop(fn: Callable[[], None], every: float, label: str) -> None:
 async def lifespan(app: FastAPI):
     db.init_db()
     hrsync.ensure()
+    with db.write(notify=False) as _c:
+        earlyleave.ensure(_c)
     bus.attach(asyncio.get_running_loop())
     tasks = []
     if not getattr(app.state, "disable_jobs", False):
@@ -497,6 +499,24 @@ def admin_employees(u: dict = Depends(current_user)):
     require_roles(u, "admin", "ops_manager", action="admin_employees")
     return look(u, lambda x: x.rows("SELECT e.*, h.department, h.block, h.weekoff, h.shift_code AS hr_shift, h.hr_status "
                                     "FROM employees e LEFT JOIN employee_hr h ON h.employee_id = e.id ORDER BY e.employee_code"))
+
+
+@app.post("/api/early-leave")
+def early_leave_create(body: dict, u: dict = Depends(current_user)):
+    require_roles(u, "admin", "supervisor", action="early_leave_request")
+    return act(u, lambda x: earlyleave.create(x, body))
+
+
+@app.get("/api/early-leave")
+def early_leave_list(u: dict = Depends(current_user)):
+    require_roles(u, "admin", "ops_manager", "supervisor", action="early_leave_list")
+    return look(u, earlyleave.listing)
+
+
+@app.post("/api/early-leave/{rid}/decide")
+def early_leave_decide(rid: str, body: dict, u: dict = Depends(current_user)):
+    require_roles(u, "admin", "ops_manager", action="early_leave_decide")
+    return act(u, lambda x: earlyleave.decide(x, rid, bool(body.get("approve")), str(body.get("note") or "")))
 
 
 @app.get("/api/admin/hr-sync")

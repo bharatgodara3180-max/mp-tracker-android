@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Early Leave Requests</title>
+<style>
+:root{--bg:#0d1118;--panel:#161b26;--line:#2b3446;--tx:#e8ecf4;--mut:#8b96ab;--ok:#2fd27a;--bad:#ff5d5d;--amb:#ffb02e;--blue:#4c9aff}
+@media (prefers-color-scheme:light){:root{--bg:#f4f6fa;--panel:#fff;--line:#d5dbe6;--tx:#161b26;--mut:#5d6779}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px system-ui,sans-serif;padding:16px;max-width:760px;margin-inline:auto}
+h1{font-size:20px;margin:0 0 4px}p.s{color:var(--mut);margin:0 0 16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+button{font:inherit;padding:9px 14px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--tx);cursor:pointer}
+button.p{background:var(--blue);border-color:var(--blue);color:#fff}button:disabled{opacity:.5}
+input[type=text],input[type=password]{font:inherit;padding:9px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--tx);width:100%;margin-bottom:8px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.k{border:1px solid var(--line);border-radius:10px;padding:10px}.k b{display:block;font-size:22px}.k span{color:var(--mut);font-size:12px}
+.err{color:var(--bad)}.ok{color:var(--ok)}.amb{color:var(--amb)}ul{margin:4px 0 0;padding-left:18px;color:var(--mut);font-size:13px}.mut{color:var(--mut)}
+</style></head><body>
+<h1>Early Leave Requests</h1><p class="s">Supervisor ki request yaha aati hai. Approve karne par wo MP gate se bahar ja sakta hai (ek baar).</p>
+<div id="login" class="card" hidden><b>Ops Manager / Admin login</b><br><br><input id="u" type="text" placeholder="Username" autocomplete="username"><input id="pw" type="password" placeholder="Password" autocomplete="current-password"><button class="p" id="lg">Login</button> <span id="lm" class="err"></span></div>
+<div id="main" hidden><div class="row" style="margin-bottom:10px"><button id="rf">Refresh</button><span id="msg" class="mut"></span></div><div id="out"></div></div>
+<script>
+const $=id=>document.getElementById(id);let T=null;try{T=localStorage.getItem("mp-token")}catch(e){}
+const api=async(m,p,b)=>{const r=await fetch("api/"+p,{method:m,headers:{"Content-Type":"application/json",...(T?{"X-MP-Token":T}:{})},body:b?JSON.stringify(b):undefined});
+ const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error((j.detail&&j.detail.message)||r.statusText),{status:r.status});return j};
+const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const tm=t=>{try{return new Date(t).toLocaleString("en-IN",{hour:"2-digit",minute:"2-digit",day:"2-digit",month:"short"})}catch(e){return t}};
+function card(r,can){const st={PENDING:"amb",APPROVED:"ok",REJECTED:"err"}[r.status]||"mut";
+ return `<div class="card"><b>${esc(r.full_name)}</b> <span class="mut">(${esc(r.employee_code)}${r.designation?" · "+esc(r.designation):""})</span>
+ <div style="margin:6px 0">${esc(r.reason)}</div><div class="mut" style="font-size:12px">By ${esc(r.requested_by_name||"")} · ${tm(r.requested_at)}</div>
+ <div class="${st}" style="margin-top:6px"><b>${r.status}</b>${r.decided_by_name?" · "+esc(r.decided_by_name):""}${r.used_at?" · gate se nikal gaya":""}</div>
+ ${r.status==="PENDING"&&can?`<div class="row" style="margin-top:8px"><button class="p" data-a="1" data-id="${r.id}">Approve</button><button data-a="0" data-id="${r.id}">Reject</button></div>`:""}</div>`}
+async function load(){try{const j=await api("GET","early-leave");$("main").hidden=false;$("login").hidden=true;
+ $("out").innerHTML=j.rows.length?j.rows.map(r=>card(r,j.can_decide)).join(""):'<div class="card mut">Koi request nahi hai.</div>';
+ document.querySelectorAll("button[data-id]").forEach(b=>b.onclick=async()=>{b.disabled=true;try{await api("POST","early-leave/"+b.dataset.id+"/decide",{approve:b.dataset.a==="1"});$("msg").textContent="Ho gaya";load()}catch(e){$("msg").textContent=e.message;b.disabled=false}})}
+ catch(e){if(e.status===401||e.status===403){$("main").hidden=true;$("login").hidden=false}else{$("main").hidden=false;$("out").innerHTML=`<div class="card err">${esc(e.message)}</div>`}}}
+$("rf").onclick=load;
+$("lg").onclick=async()=>{$("lm").textContent="";try{const j=await api("POST","auth/login",{username:$("u").value,password:$("pw").value});T=j.token;try{localStorage.setItem("mp-token",T)}catch(e){}load()}catch(e){$("lm").textContent=e.message}};
+load();setInterval(()=>{if(!$("main").hidden)load()},20000);
+</script></body></html>
