@@ -332,7 +332,7 @@ def _plan_in(x: Ctx, s: dict, emp: str, t: datetime) -> dict:
             limit = break_allowed(x, "LUNCH")
             extra = f" · total {_hm_text(total)}" if before > 0 else ""
             if total > limit:
-                return result("DC IN LATE", f"Lunch {_hm_text(took)}{extra} (limit {limit} min)", "red", True)
+                return result("DC IN LATE", f"Lunch {_hm_text(took)}{extra} (limit {limit} min)", "green", False)   # lunch overrun is still a successful scan
             return result("DC IN", f"LUNCH RETURN · {_hm_text(took)}{extra}")
         return result("DC IN", "BREAK RETURN")
     if s["status"] in ("OUTSIDE_PICKUP", "OUTSIDE_OFFICIAL"):
