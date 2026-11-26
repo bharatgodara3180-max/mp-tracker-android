@@ -20,7 +20,7 @@ import { GateEnrolButton } from '../components/GateEnrol';
 interface Transfer { id: string; employee_id: string; employee_code: string; full_name: string; from_area: string; from_code: string;
   to_area: string; to_code: string; created_at: string; given_by: string | null; has_photo: boolean }
 type Sheet = null | 'deployment' | 'handover' | 'inbox' | 'early';
-type OutPurpose = 'PICKUP' | 'LUNCH' | 'OTHER';
+type OutPurpose = 'PICKUP' | 'LUNCH' | 'OTHER' | 'EARLY';
 
 const Icon = {
   deployment: <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>,
@@ -47,9 +47,10 @@ export default function SupervisorApp() {
   const mine = useLiveQuery<{ area_ids: string[] }>(() => get('supervisor/my-areas'), [], []);
   const pickAreas = allAreas.filter((a) => { const m = mine.data?.area_ids ?? []; return !m.length || m.includes(a.id); });
   const toast = useToast();
-  const outChoices: { key: string; label: string; purpose: OutPurpose; areaId?: string }[] = outOpts.length
+  const outChoices: { key: string; label: string; purpose: OutPurpose; areaId?: string }[] = [...(outOpts.length
     ? outOpts.map((o) => ({ key: o.id, label: o.name, purpose: (o.out_purpose ?? 'OTHER') as OutPurpose, areaId: o.id }))
-    : [{ key: 'LUNCH', label: 'Lunch', purpose: 'LUNCH' }, { key: 'OTHER', label: 'Other', purpose: 'OTHER' }];
+    : [{ key: 'LUNCH', label: 'Lunch', purpose: 'LUNCH' as OutPurpose }, { key: 'OTHER', label: 'Other', purpose: 'OTHER' as OutPurpose }]),
+    { key: 'EARLY', label: 'Early Leave', purpose: 'EARLY' as OutPurpose }];   // scan -> name -> reason -> request for Ops Manager / Admin
   const outChoice = outChoices.find((c) => c.key === outPick) ?? outChoices[0];
   const purpose = outChoice?.purpose ?? 'LUNCH';
   const [route, setRoute] = useState('');
@@ -97,6 +98,7 @@ export default function SupervisorApp() {
 
   const submit = (id: ScanId) => (action === 'deploy'
     ? post<ScanReply>('face/deploy', { ...id, area_id: area })
+    : purpose === 'EARLY' ? post<ScanReply>('face/early-identify', id)
     : post<ScanReply>('face/assign-out', { ...id, purpose, out_area_id: outChoice?.areaId, area_id: area, route_ref: purpose === 'PICKUP' ? route.trim() || null : null }));
 
   return (
@@ -129,8 +131,9 @@ export default function SupervisorApp() {
         {outChoices.map((c) => <button key={c.key} className={`tag ${outChoice?.key === c.key ? 'on' : ''}`} onClick={() => setOutPick(c.key)}>{c.label}</button>)}
         {purpose === 'PICKUP' && <input className="route-input" value={route} onChange={(e) => setRoute(e.target.value)} placeholder="Route / ref (optional)" />}
       </div>}
-      <ScanPanel active={sheet === null && !enrolOpen} buttonLabel={action === 'deploy' ? 'Deploy' : 'OUT assign'} submit={submit}
-                 onResult={(r) => { if (!r.result.alarm) void areaLive.refresh(); }} />
+      <ScanPanel active={sheet === null && !enrolOpen} buttonLabel={action === 'deploy' ? 'Deploy' : purpose === 'EARLY' ? 'Early Leave' : 'OUT assign'} submit={submit}
+                 onResult={(r) => { if (purpose === 'EARLY' && r.employee) window.dispatchEvent(new CustomEvent('mp-early-emp', { detail: r.employee })); if (!r.result.alarm) void areaLive.refresh(); }} />
+      {action === 'out' && purpose === 'EARLY' && <EarlyReasonBox />}
       <p className="muted small kiosk-foot">{action === 'deploy'
         ? (isPickupArea ? `Scan kiye MP ${areaRow.name} ke liye assign honge ("Assigned for ${areaRow.name}"), gate se OUT hote hi "On ${areaRow.name}".`
           : `Scan kiye MP ${areaRow.name} mein deploy honge. Doosre area wale MP ke liye pehle wahan se handover chahiye.`)
@@ -229,6 +232,38 @@ function BigPhoto({ id }: { id: string }) {
   }, [id]);
   return state.url ? <img src={state.url} alt="" style={{ width: 240, maxWidth: '100%', borderRadius: 10, objectFit: 'cover' }} />
     : <div className="muted" style={{ padding: '40px 0' }}>{state.done ? 'Photo nahi hai' : 'Photo aa rahi hai…'}</div>;
+}
+
+/* ---------- Early Leave via OUT assign: after the scan shows the name, a reason box + Submit raises the request ---------- */
+function EarlyReasonBox() {
+  const toast = useToast();
+  const [emp, setEmp] = useState<{ code: string; name: string } | null>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const f = (e: Event) => { setEmp((e as CustomEvent).detail); setReason(''); };
+    window.addEventListener('mp-early-emp', f);
+    return () => window.removeEventListener('mp-early-emp', f);
+  }, []);
+  if (!emp) return null;
+  const go = async () => {
+    if (reason.trim().length < 3) { toast('err', 'Reason likhiye'); return; }
+    setBusy(true);
+    try {
+      await post('early-leave', { emp_id: emp.code, reason: reason.trim() });
+      toast('ok', `${emp.name} ki early leave request bhej di — Ops Manager / Admin approve karenge`);
+      setEmp(null); setReason('');
+    } catch (e) { toast('err', (e as Error).message); }
+    setBusy(false);
+  };
+  return (
+    <div className="panel" style={{ margin: '10px 0', padding: 12, display: 'grid', gap: 8 }}>
+      <div><b style={{ fontSize: 18 }}>{emp.name}</b> <span className="mono muted">{emp.code}</span></div>
+      <textarea className="route-input" style={{ width: '100%', minHeight: 80 }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Enter reason here" autoFocus />
+      <div style={{ display: 'flex', gap: 8 }}><Button variant="primary" busy={busy} onClick={() => void go()}>Submit</Button>
+        <Button variant="ghost" onClick={() => { setEmp(null); setReason(''); }}>Cancel</Button></div>
+    </div>
+  );
 }
 
 /* ---------- request early leave for an MP: Ops Manager / Admin approve, then the MP can scan OUT ---------- */

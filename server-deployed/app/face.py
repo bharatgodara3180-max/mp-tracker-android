@@ -766,6 +766,16 @@ def cancel_out(x: Ctx, p: dict, reason: str) -> None:
 OUT_PURPOSES = {"PICKUP": "PICKUP", "LUNCH": "LUNCH", "OTHER": "OTHER"}
 
 
+def early_identify(x: Ctx, a: dict) -> dict:
+    """Supervisor "OUT -> Early Leave": scan (face / ID / typed) only identifies the MP; the reason box + request follow in the app."""
+    require(x.has("admin", "supervisor"), x, "early_leave_request")
+    emp, reason, info, not_found = _identify(x, a)
+    e = _employee(x, emp)
+    if not emp:
+        return {"ok": True, "matched": False, "reason": reason, "employee": None, "result": result(not_found, reason or "", "red", True)}
+    return {"ok": True, "matched": True, "employee": e, "result": result("EARLY LEAVE", f"{e['name']} ({e['code']}) · reason likhiye", "blue")}
+
+
 def assign_out(x: Ctx, a: dict) -> dict:
     """Supervisor allows an MP out once: PICKUP / OTHER (pickup plan) or LUNCH (exit permit). Shift end needs no assignment."""
     require(x.has("admin", "supervisor"), x, "assign_out", purpose=a.get("purpose"))

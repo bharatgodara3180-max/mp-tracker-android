@@ -986,6 +986,13 @@ def supervisor_self_deploy(body: dict, u: dict = Depends(current_user)):
     return act(u, lambda x: face.self_deploy(x, body or {}))
 
 
+@app.post("/api/face/early-identify")
+def face_early_identify(body: dict, u: dict = Depends(current_user)):
+    body = body or {}
+    face.prepare(body)
+    return act(u, lambda x: face.early_identify(x, body))
+
+
 @app.post("/api/face/assign-out")
 def face_assign_out(body: dict, u: dict = Depends(current_user)):
     body = body or {}
