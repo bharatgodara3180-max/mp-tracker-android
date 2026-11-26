@@ -98,7 +98,7 @@ export default function SupervisorApp() {
 
   const submit = (id: ScanId) => (action === 'deploy'
     ? post<ScanReply>('face/deploy', { ...id, area_id: area })
-    : purpose === 'EARLY' ? post<ScanReply>('face/early-identify', id)
+    : purpose === 'EARLY' ? post<ScanReply>('face/early-identify', id).then((r) => ({ ...r, quiet: true }))
     : post<ScanReply>('face/assign-out', { ...id, purpose, out_area_id: outChoice?.areaId, area_id: area, route_ref: purpose === 'PICKUP' ? route.trim() || null : null }));
 
   return (
@@ -241,27 +241,32 @@ function EarlyReasonBox() {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    const f = (e: Event) => { setEmp((e as CustomEvent).detail); setReason(''); };
+    const f = (e: Event) => setEmp((old) => old ?? (e as CustomEvent).detail);   // camera keeps scanning behind the window: ignore repeats
     window.addEventListener('mp-early-emp', f);
     return () => window.removeEventListener('mp-early-emp', f);
   }, []);
   if (!emp) return null;
+  const close = () => { setEmp(null); setReason(''); };
   const go = async () => {
     if (reason.trim().length < 3) { toast('err', 'Reason likhiye'); return; }
     setBusy(true);
     try {
       await post('early-leave', { emp_id: emp.code, reason: reason.trim() });
       toast('ok', `${emp.name} ki early leave request bhej di — Ops Manager / Admin approve karenge`);
-      setEmp(null); setReason('');
+      close();
     } catch (e) { toast('err', (e as Error).message); }
     setBusy(false);
   };
   return (
-    <div className="panel" style={{ margin: '10px 0', padding: 12, display: 'grid', gap: 8 }}>
-      <div><b style={{ fontSize: 18 }}>{emp.name}</b> <span className="mono muted">{emp.code}</span></div>
-      <textarea className="route-input" style={{ width: '100%', minHeight: 80 }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Enter reason here" autoFocus />
-      <div style={{ display: 'flex', gap: 8 }}><Button variant="primary" busy={busy} onClick={() => void go()}>Submit</Button>
-        <Button variant="ghost" onClick={() => { setEmp(null); setReason(''); }}>Cancel</Button></div>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, zIndex: 80 }}>
+      <div style={{ background: '#161b26', border: '1px solid #2b3446', borderRadius: 12, width: 'min(380px,100%)', padding: 16, display: 'grid', gap: 10, color: '#e8ecf4' }}>
+        <div style={{ fontWeight: 700, fontSize: 13, opacity: 0.8 }}>Early Leave</div>
+        <div><b style={{ fontSize: 20 }}>{emp.name}</b> <span className="mono muted">{emp.code}</span></div>
+        <input className="route-input" style={{ width: '100%' }} value={reason} onChange={(e) => setReason(e.target.value)}
+               onKeyDown={(e) => { if (e.key === 'Enter') void go(); }} placeholder="Enter reason here" autoFocus />
+        <div style={{ display: 'flex', gap: 8 }}><Button variant="primary" busy={busy} onClick={() => void go()}>Submit</Button>
+          <Button variant="ghost" onClick={close}>Cancel</Button></div>
+      </div>
     </div>
   );
 }

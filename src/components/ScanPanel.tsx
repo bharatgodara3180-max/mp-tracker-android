@@ -10,7 +10,7 @@ import { Button } from './ui';
 import { CameraStage, FullResult, playSound, useFaceCapture, type CaptureOutcome, type KioskResult } from './FaceKiosk';
 
 export type ScanId = { scan_value?: string; image?: string };
-export interface ScanReply { matched?: boolean; reason?: string; repeat?: boolean; result: KioskResult; employee?: { id: string; code: string; name: string; has_photo?: boolean } | null }
+export interface ScanReply { quiet?: boolean; matched?: boolean; reason?: string; repeat?: boolean; result: KioskResult; employee?: { id: string; code: string; name: string; has_photo?: boolean } | null }
 type Mode = 'face' | 'qr' | 'manual';
 type Facing = 'user' | 'environment';
 interface View { result: KioskResult; name?: string; code?: string; photo?: string | null; repeat?: boolean }
@@ -58,8 +58,9 @@ export function ScanPanel({ submit, active, buttonLabel, onResult }: {
     try {
       const r = await Promise.race([submitRef.current(id),     // never hang on a slow network
         new Promise<never>((_, rej) => setTimeout(() => rej(new ApiError('Server slow hai — dobara scan kariye', 'NETWORK', 0)), 15000))]);
-      playSound(!!r.result.alarm);
+      if (!r.quiet) playSound(!!r.result.alarm);
       onResultRef.current?.(r);
+      if (r.quiet) return r;   // caller shows its own window (e.g. Early Leave reason box): no full-screen result
       showView({ result: r.result, name: r.employee?.name, code: r.employee?.code, photo: null, repeat: r.repeat }, autoClear);
       const emp = r.employee;
       if (emp?.has_photo) void imageUrl(`face/photo/${emp.id}`).then((photo) => {   // result first, photo after
