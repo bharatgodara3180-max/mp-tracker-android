@@ -16,6 +16,11 @@ _DDL = ("CREATE TABLE IF NOT EXISTS early_leave_requests (id TEXT PRIMARY KEY, e
 
 def ensure(c) -> None:
     c.execute(_DDL)
+    if not any(r[1] == "free_inout" for r in c.execute("PRAGMA table_info(employees)").fetchall()):
+        c.execute("ALTER TABLE employees ADD COLUMN free_inout INTEGER NOT NULL DEFAULT 0")
+    # a GC's rejected OUT is not an alert any more: clear the old ones
+    c.execute("UPDATE alerts SET status='RESOLVED', resolved_at=?, auto_resolved=1, resolution_note='Not an alert' "
+              "WHERE alert_type='GATE_OUT_REJECTED' AND status<>'RESOLVED'", (now_iso(),))
 
 
 def _key(rid: str) -> str:
@@ -90,3 +95,13 @@ def approved_for(x: Ctx, emp: str, t) -> str | None:
 
 def mark_used(x: Ctx, rid: str, t, gate_event_id: str | None) -> None:
     x.ex("UPDATE early_leave_requests SET used_at=?, gate_event_id=? WHERE id=?", (iso(t), gate_event_id, rid))
+
+
+def set_free_inout(x: Ctx, rid: str, value: bool) -> dict:
+    require(x.has("admin", "ops_manager"), x, "free_inout")
+    r = x.one("SELECT id, full_name FROM employees WHERE id=?", (rid,))
+    if not r:
+        raise NotFound("Employee nahi mila")
+    x.ex("UPDATE employees SET free_inout=? WHERE id=?", (1 if value else 0, rid))
+    audit(x, "free_inout_on" if value else "free_inout_off", "employee", rid, None, None, {"free_inout": bool(value)})
+    return {"ok": True, "free_inout": bool(value)}

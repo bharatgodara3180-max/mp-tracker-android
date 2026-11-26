@@ -501,6 +501,12 @@ def admin_employees(u: dict = Depends(current_user)):
                                     "FROM employees e LEFT JOIN employee_hr h ON h.employee_id = e.id ORDER BY e.employee_code"))
 
 
+@app.post("/api/admin/employees/{rid}/free-inout")
+def employee_free_inout(rid: str, body: dict, u: dict = Depends(current_user)):
+    require_roles(u, "admin", "ops_manager", action="free_inout")
+    return act(u, lambda x: earlyleave.set_free_inout(x, rid, bool(body.get("value"))))
+
+
 @app.post("/api/early-leave")
 def early_leave_create(body: dict, u: dict = Depends(current_user)):
     require_roles(u, "admin", "supervisor", action="early_leave_request")

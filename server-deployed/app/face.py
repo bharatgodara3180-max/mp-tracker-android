@@ -355,7 +355,9 @@ def my_employee(x: Ctx) -> str | None:
 
 
 def is_sup_emp(x: Ctx, emp: str) -> bool:
-    """True when this employee has a supervisor login: no IN/OUT restrictions for them."""
+    """True when this employee has a supervisor login, or Admin ticked "Free IN/OUT" on him: no IN/OUT restrictions (device check still applies)."""
+    if x.one("SELECT 1 FROM employees WHERE id=? AND free_inout=1", (emp,)):
+        return True
     return bool(x.one("""SELECT 1 FROM users u JOIN employees e ON e.id=?
                          WHERE u.role='supervisor' AND u.is_active=1
                            AND (u.employee_id=e.id OR upper(u.username)=upper(e.employee_code)) LIMIT 1""", (emp,)))
@@ -557,8 +559,7 @@ def scan(x: Ctx, a: dict) -> dict:
                     VALUES (?,?,?,?,?, 'OUT', ?,?, 'FACE_DEVICE', ?, 'REJECTED', ?,?,?,?)""",
                  (gid, emp, dev["id"], eid, e["code"], iso(t), now_iso(), conf, "OUT not allowed: " + res["sub"], x.uid,
                   f"{res['label']} · {res['sub']}", dumps({**raw, "result": res})))
-            raise_alert(x, "GATE_OUT_REJECTED", "WARNING", emp, "gate_event", gid, f"GATE_OUT_REJECTED:{gid}",
-                        "DC OUT rejected at gate", f"{e['name']}: {res['sub']}")
+            # no alert for a rejected OUT: the gate screen already shows it in red (Alerts only carry gate-device-offline / early-leave requests etc.)
             return {"ok": True, "applied": False, "processing_status": "REJECTED", "gate_event_id": gid, "employee": e,
                     "matched": True, "direction": "OUT", "result": res}
     else:
