@@ -21,7 +21,7 @@ import numpy as np
 from . import assetdesk, config, earlyleave, facengine
 from .db import dumps, iso, new_id, now_iso, parse_ts, utcnow
 from .engine import (shift_for_entry, AppError, BadInput, Conflict, Ctx, NotFound, _hm, assign_work, audit, break_allowed, business_date,
-                     auto_resolve, employee_by_scan, lunch_taken, mins, plan_pickup, process_gate_event, raise_alert, require, s_int, setting, shift_end_at, site_tz)
+                     auto_resolve, employee_by_scan, lunch_taken, mins, plan_pickup, process_gate_event, raise_alert, require, s_int, setting, shift_end_at, site_tz, reopenable_attendance)
 
 DIM = facengine.DIM
 STAFF_ENROL = ("admin", "supervisor", "ld")          # ops_manager is view-only
@@ -315,6 +315,8 @@ def _shift_start(x: Ctx, shift_id: str | None, t: datetime) -> datetime | None:
 def _plan_in(x: Ctx, s: dict, emp: str, t: datetime) -> dict:
     """Result for a DC IN, decided before the gate event is applied."""
     if s["status"] in ("NOT_CHECKED_IN", "SHIFT_ENDED") or not s["attendance_id"]:
+        if not x.one("SELECT 1 FROM shift_attendance WHERE employee_id=? AND checked_out_at IS NULL", (emp,)) and reopenable_attendance(x, emp, t):
+            return result("DC IN", "RE-ENTRY")   # back after the full shift: normal IN, no new shift / late check
         shift_id = shift_for_entry(x, t) or (x.one("SELECT default_shift_id FROM employees WHERE id=?", (emp,)) or {}).get("default_shift_id")
         start = _shift_start(x, shift_id, t)
         if start:
@@ -366,7 +368,7 @@ def _sup_out(x: Ctx, s: dict, emp: str, t: datetime) -> tuple[str, dict]:
     need = float(setting(x, "dc_min_shift_hours", 9)) * 60
     end = shift_end_at(x, s["attendance_id"])
     if worked >= need or (end and t >= end - mins(s_int(x, "shift_end_window_minutes", 45))):
-        return "SHIFT_END", result("DC OUT", f"SHIFT END · {_hm_text(worked)}", "blue")
+        return "SHIFT_END", result("DC OUT", f"{_hm_text(worked)} complete", "blue")
     return "OFFICIAL", result("DC OUT", "OFFICIAL WORK", "blue")
 
 
@@ -449,7 +451,7 @@ def _plan_out(x: Ctx, s: dict, emp: str, t: datetime) -> tuple[str | None, dict,
         h = _held(x, emp)   # going home: nothing (floor or pickup device) may still be issued on his name
         if h and h["total"] > 0:
             return None, result("DC OUT REJECTED", "Return Device First" + _ids(h), "red", True), None
-        return "SHIFT_END", result("DC OUT", f"SHIFT END · {_hm_text(worked)}", "blue"), None
+        return "SHIFT_END", result("DC OUT", f"{_hm_text(worked)} complete", "blue"), None
     return None, result("DC OUT REJECTED", f"OUT assign nahi hai · shift {_hm_text(worked)} (min {_hm_text(need)})", "red", True), None
 
 

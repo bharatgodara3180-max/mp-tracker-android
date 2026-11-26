@@ -414,13 +414,33 @@ def handover_event(x: Ctx, hid: str, typ: str, frm: str | None, to: str | None, 
 
 
 # ---------------------------------------------------------------- gate engine
+def reopenable_attendance(x: Ctx, emp: str, t: datetime) -> str | None:
+    """Id of this MP's last attendance when he comes back after completing the minimum shift hours (9 h counted from the FIRST IN).
+    Coming back is a normal IN/OUT of the same duty (no new shift, no late IN, no approval); the attendance end time is simply the
+    last transaction time."""
+    r = x.one("SELECT id, checked_in_at, checked_out_at FROM shift_attendance WHERE employee_id=? AND checked_out_at IS NOT NULL "
+              "AND check_out_reason='GATE_OUT' ORDER BY checked_out_at DESC LIMIT 1", (emp,))
+    if not r or not r["checked_in_at"]:
+        return None
+    need = float(setting(x, "dc_min_shift_hours", 9)) * 60
+    if (parse_ts(r["checked_out_at"]) - parse_ts(r["checked_in_at"])).total_seconds() / 60 < need:
+        return None   # went home early (early leave etc.) -> a fresh IN is a new shift
+    if (t - parse_ts(r["checked_out_at"])).total_seconds() > float(setting(x, "dc_reentry_hours", 12)) * 3600:
+        return None
+    return r["id"]
+
+
 def _apply_gate_in(x: Ctx, s: dict, ge: str, t: datetime, device: str | None) -> dict:
     emp = s["employee_id"]
     g = dict(gate=ge, gate_dir="IN", device=device)
     if s["status"] in ("NOT_CHECKED_IN", "SHIFT_ENDED") or not s["attendance_id"]:
         att = x.one("SELECT id FROM shift_attendance WHERE employee_id=? AND checked_out_at IS NULL", (emp,))
+        re_id = None if att else reopenable_attendance(x, emp, t)
         if att:
             att_id = att["id"]
+        elif re_id:   # back after 9 h+ -> same attendance continues, its end time moves with the last OUT
+            x.ex("UPDATE shift_attendance SET checked_out_at=NULL, check_out_gate_event_id=NULL, check_out_reason=NULL WHERE id=?", (re_id,))
+            att_id = re_id
         else:
             shift = shift_for_entry(x, t) or (x.one("SELECT default_shift_id FROM employees WHERE id=?", (emp,)) or {}).get("default_shift_id")
             att_id = new_id()

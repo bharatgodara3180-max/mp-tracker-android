@@ -287,6 +287,15 @@ def _m(a: datetime | None, b: datetime | None) -> float | None:
     return round((b - a).total_seconds() / 60, 1)
 
 
+def _last_txn(x: Ctx, a: dict, now) -> str:
+    """Last gate transaction of this attendance (the record's end time), shown in site local time."""
+    hi = a["checked_out_at"] or iso(now)
+    r = x.one("SELECT max(event_time) AS t FROM gate_events WHERE employee_id=? AND processing_status='APPLIED' AND event_time>=? AND event_time<=?",
+              (a["employee_id"], a["checked_in_at"], hi))
+    v = parse_ts((r or {}).get("t") or a["checked_out_at"])
+    return v.astimezone(site_tz(x)).strftime("%d %b %Y %H:%M") if v else ""
+
+
 def report(x: Ctx, name: str, d_from: str, d_to: str) -> list[dict]:
     if not x.has("admin", "ops_manager", "supervisor"):
         return []
@@ -336,7 +345,7 @@ def report(x: Ctx, name: str, d_from: str, d_to: str) -> list[dict]:
                     late_in = f"Late IN {int(lm)} min"
             out.append({"attendance_id": a["id"], "employee_code": a["employee_code"], "full_name": a["full_name"],
                         "shift_code": a["shift_code"], "late_in": late_in, "business_date": a["business_date"], "checked_in_at": a["checked_in_at"],
-                        "checked_out_at": a["checked_out_at"],
+                        "last_transaction_time": _last_txn(x, a, now),
                         "remarks": "" if a["check_out_reason"] in (None, "GATE_OUT") else a["check_out_reason"],
                         "total_minutes": _m(ws, we),
                         "inside_minutes": round(acc["inside"], 1), "outside_minutes": round(acc["outside"], 1),
